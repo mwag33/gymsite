@@ -6,7 +6,10 @@ import { defineSecret } from "firebase-functions/params";
 // without ever landing in source control or function config.
 export const geminiApiKey = defineSecret("GEMINI_API_KEY");
 
-export const MODEL_ID = "gemini-2.0-flash";
+// Pinned to the "-latest" alias rather than a dated version string (e.g.
+// "gemini-2.0-flash", which Google retired and started 404ing on) so this
+// doesn't go stale again as Google cycles model versions.
+export const MODEL_ID = "gemini-flash-latest";
 
 export interface GenerateTrainingPlanInput {
   goal: string;

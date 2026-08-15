@@ -51,3 +51,25 @@ export async function checkAndConsumeAiQuota(uid: string): Promise<void> {
     tx.set(ref, next);
   });
 }
+
+/**
+ * Refunds one unit of daily AI quota after a failed generation attempt.
+ *
+ * checkAndConsumeAiQuota() reserves a unit *before* calling Gemini, on
+ * purpose - otherwise a user already at their cap could keep triggering real
+ * (billed) API calls with no gate at all. But that means a failure that
+ * never reached a real answer (a transient Gemini error, a bad model name,
+ * a network blip) would otherwise permanently cost the user a unit of their
+ * daily cap through no fault of their own. Call this from the caller's catch
+ * block whenever generateTrainingPlan() throws, so only attempts that
+ * actually produced a plan count against the limit.
+ */
+export async function refundAiQuota(uid: string): Promise<void> {
+  const ref = db.doc(`users/${uid}/meta/aiQuota`);
+  await db.runTransaction(async (tx) => {
+    const snap = await tx.get(ref);
+    if (!snap.exists) return;
+    const data = snap.data() as AiQuotaDoc;
+    tx.set(ref, { ...data, dailyCount: Math.max(0, data.dailyCount - 1) });
+  });
+}

@@ -6,10 +6,14 @@ import { defineSecret } from "firebase-functions/params";
 // without ever landing in source control or function config.
 export const geminiApiKey = defineSecret("GEMINI_API_KEY");
 
-// Pinned to the "-latest" alias rather than a dated version string (e.g.
+// Pinned to a "-latest" alias rather than a dated version string (e.g.
 // "gemini-2.0-flash", which Google retired and started 404ing on) so this
-// doesn't go stale again as Google cycles model versions.
-export const MODEL_ID = "gemini-flash-latest";
+// doesn't go stale again as Google cycles model versions. Lite tier: this
+// call is a small structured-JSON generation, not a task that needs the
+// full flash/pro reasoning budget, so the cheaper tier is the right
+// default. Verified directly against the live API with our exact
+// responseSchema before shipping.
+export const MODEL_ID = "gemini-flash-lite-latest";
 
 export interface GenerateTrainingPlanInput {
   goal: string;

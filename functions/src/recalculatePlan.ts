@@ -1,7 +1,7 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { Timestamp } from "firebase-admin/firestore";
 import { db } from "./admin";
-import { checkAndConsumeAiQuota } from "./quota";
+import { checkAndConsumeAiQuota, refundAiQuota } from "./quota";
 import { generateTrainingPlan, geminiApiKey, MODEL_ID } from "./gemini";
 import type { FeatureFlagsDoc, TrainingPlanDoc, WorkoutLogDoc } from "./types";
 
@@ -76,15 +76,24 @@ export const recalculatePlan = onCall<RecalculatePlanRequest>(
     const recentLogs = recentLogsSnap.docs.map((d) => d.data() as WorkoutLogDoc);
     const currentPlan = currentPlanSnap.exists ? (currentPlanSnap.data() as TrainingPlanDoc) : null;
 
-    const generated = await generateTrainingPlan({
-      goal: currentPlan ? currentPlan.days.map((d) => d.focus).join(", ") : "General fitness",
-      experience: "returning-user",
-      daysPerWeek: currentPlan?.frequencyPerWeek ?? 3,
-      sessionLengthMinutes: 60,
-      recentWorkoutSummary: summarizeLogs(recentLogs),
-      userNotes: "",
-      basedOnLogId: logId,
-    });
+    // See generateInitialPlan.ts for why a failed generation must refund the
+    // quota unit reserved above, rather than permanently costing the user a
+    // unit of their daily cap for a failure that never produced a plan.
+    let generated;
+    try {
+      generated = await generateTrainingPlan({
+        goal: currentPlan ? currentPlan.days.map((d) => d.focus).join(", ") : "General fitness",
+        experience: "returning-user",
+        daysPerWeek: currentPlan?.frequencyPerWeek ?? 3,
+        sessionLengthMinutes: 60,
+        recentWorkoutSummary: summarizeLogs(recentLogs),
+        userNotes: "",
+        basedOnLogId: logId,
+      });
+    } catch (err) {
+      await refundAiQuota(uid);
+      throw err;
+    }
 
     const now = Timestamp.now();
     const newPlan: TrainingPlanDoc = {

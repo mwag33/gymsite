@@ -1,7 +1,7 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { db } from "./admin";
-import { checkAndConsumeAiQuota } from "./quota";
+import { checkAndConsumeAiQuota, refundAiQuota } from "./quota";
 import { generateTrainingPlan, geminiApiKey, MODEL_ID } from "./gemini";
 import type { FeatureFlagsDoc, TrainingPlanDoc, UserSettings } from "./types";
 
@@ -55,15 +55,26 @@ export const generateInitialPlan = onCall<GenerateInitialPlanRequest>(
       .filter(Boolean)
       .join("\n");
 
-    const generated = await generateTrainingPlan({
-      goal: input.goal,
-      experience: input.experience,
-      daysPerWeek: input.daysPerWeek,
-      sessionLengthMinutes: input.sessionLengthMinutes,
-      recentWorkoutSummary: "No prior workout history yet - this is the user's first plan.",
-      userNotes,
-      basedOnLogId: null,
-    });
+    // The quota unit above is reserved before calling Gemini so an
+    // over-quota user can't keep triggering billed API calls at all - but
+    // that means a failure that never produced a plan (a bad model name, a
+    // transient Gemini error) must refund the unit, or a bug on our side
+    // permanently eats into the user's daily cap for no fault of their own.
+    let generated;
+    try {
+      generated = await generateTrainingPlan({
+        goal: input.goal,
+        experience: input.experience,
+        daysPerWeek: input.daysPerWeek,
+        sessionLengthMinutes: input.sessionLengthMinutes,
+        recentWorkoutSummary: "No prior workout history yet - this is the user's first plan.",
+        userNotes,
+        basedOnLogId: null,
+      });
+    } catch (err) {
+      await refundAiQuota(uid);
+      throw err;
+    }
 
     const now = Timestamp.now();
     const weekStartsOn = input.weekStartsOn ?? 1;

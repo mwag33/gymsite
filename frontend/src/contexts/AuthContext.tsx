@@ -7,7 +7,8 @@ import {
 } from "react";
 import {
   onAuthStateChanged,
-  signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   signInWithEmailAndPassword,
   createUserWithEmailAndPassword,
   sendEmailVerification,
@@ -23,6 +24,7 @@ interface AuthContextValue {
   profile: UserProfile | null;
   loading: boolean;
   profileLoading: boolean;
+  redirectError: string | null;
   signInWithGoogle: () => Promise<void>;
   signUpWithEmail: (email: string, password: string) => Promise<void>;
   signInWithEmail: (email: string, password: string) => Promise<void>;
@@ -36,6 +38,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [profileLoading, setProfileLoading] = useState(true);
+  const [redirectError, setRedirectError] = useState<string | null>(null);
 
   useEffect(() => {
     return onAuthStateChanged(auth, (nextUser) => {
@@ -45,6 +48,20 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setProfile(null);
         setProfileLoading(false);
       }
+    });
+  }, []);
+
+  // Completes the signInWithRedirect round-trip after Google bounces the
+  // user back here. Google sign-in deliberately uses redirect rather than
+  // signInWithPopup — the popup flow's IndexedDB-backed persistence layer
+  // races with the popup window closing on Safari and privacy-hardened
+  // browsers, surfacing as an opaque "database is closing" error. Redirect
+  // avoids that race entirely and is also the friendlier flow on mobile web.
+  useEffect(() => {
+    getRedirectResult(auth).catch((err) => {
+      setRedirectError(
+        err instanceof Error ? err.message : "Google sign-in failed. Please try again."
+      );
     });
   }, []);
 
@@ -65,8 +82,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     profile,
     loading,
     profileLoading,
+    redirectError,
     async signInWithGoogle() {
-      await signInWithPopup(auth, googleProvider);
+      await signInWithRedirect(auth, googleProvider);
     },
     async signUpWithEmail(email, password) {
       const cred = await createUserWithEmailAndPassword(auth, email, password);

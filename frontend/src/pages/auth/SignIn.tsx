@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../../contexts/AuthContext";
 
 export default function SignIn() {
-  const { signInWithGoogle, signInWithEmail, signUpWithEmail } = useAuth();
+  const { user, redirectError, signInWithGoogle, signInWithEmail, signUpWithEmail } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const from = (location.state as { from?: Location })?.from?.pathname || "/";
@@ -14,15 +14,22 @@ export default function SignIn() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
+  // Google sign-in uses signInWithRedirect (see AuthContext), so the page
+  // fully navigates away and back rather than resolving a promise here —
+  // once the redirect completes, `user` becomes truthy on the next render
+  // and this sends them on, whether that's the first return-from-Google
+  // render or just a signed-in user landing on /signin directly.
+  useEffect(() => {
+    if (user) navigate(from, { replace: true });
+  }, [user, from, navigate]);
+
   async function handleGoogle() {
     setError(null);
     setBusy(true);
     try {
       await signInWithGoogle();
-      navigate(from, { replace: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Sign-in failed.");
-    } finally {
       setBusy(false);
     }
   }
@@ -73,6 +80,11 @@ export default function SignIn() {
         >
           Continue with Google
         </button>
+        {redirectError && (
+          <p style={{ color: "var(--danger)", fontSize: 13, marginTop: -8, marginBottom: "var(--space-4)" }}>
+            {redirectError}
+          </p>
+        )}
 
         <div
           style={{

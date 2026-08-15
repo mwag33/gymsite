@@ -20,7 +20,9 @@ See the full architecture and design plan at the bottom of this file's project h
 4. Get a **Gemini API key** and set it as a Cloud Functions secret: `firebase functions:secrets:set GEMINI_API_KEY`.
 5. Replace the placeholder project ID in `.firebaserc` with your real project ID (or run `firebase use --add`).
 6. Copy `frontend/.env.example` to `frontend/.env.local` and fill in your Firebase web app config (Project Settings → General → Your apps).
-7. For CI/CD, add these GitHub Actions repo secrets: `FIREBASE_SERVICE_ACCOUNT` (a service account JSON with Firebase Hosting/Functions/Firestore deploy permissions), `FIREBASE_PROJECT_ID`, and the six `VITE_FIREBASE_*` values from step 6.
+7. For CI/CD, add these GitHub Actions repo secrets: `FIREBASE_SERVICE_ACCOUNT` (a service account JSON), `FIREBASE_PROJECT_ID`, and the six `VITE_FIREBASE_*` values from step 6. Grant the service account these IAM roles on the GCP project so `firebase deploy` can push Hosting, Functions, and Firestore rules/indexes, and self-enable any GCP API a 2nd-gen function deploy newly requires (e.g. `cloudbilling.googleapis.com`, `cloudbuild.googleapis.com`, `artifactregistry.googleapis.com`):
+   - `roles/firebase.admin` (or the narrower Hosting/Functions/Firestore admin roles, if scoping down)
+   - `roles/serviceusage.serviceUsageAdmin` — without this, deploys fail with `Permissions denied enabling <api>.googleapis.com` whenever a function change needs a GCP API that isn't enabled yet.
 8. **Not yet wired up — do before launch:** enable [Firebase App Check](https://firebase.google.com/docs/app-check) (reCAPTCHA Enterprise or v3 provider for the web app) and call `initializeAppCheck` in `frontend/src/lib/firebase.ts`, then enforce it on Firestore and Cloud Functions in the console. This was in the original security plan as the anti-abuse layer for direct client writes (gym/machine creation) but needs a real Firebase project to configure, so it was left out of this build. Without it, the write-frequency throttling on shared gym/machine data relies only on the field-level validation already in `firestore.rules`.
 
 ## Local development

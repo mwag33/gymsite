@@ -1,5 +1,7 @@
 export { onUserCreate } from "./onUserCreate";
 export { generateInitialPlan } from "./generateInitialPlan";
+export { generateExercisesForPlan } from "./generateExercisesForPlan";
+export { updateTrainingPlan } from "./updateTrainingPlan";
 export { recalculatePlan } from "./recalculatePlan";
 export { onWorkoutLogWritten } from "./onWorkoutLogWritten";
 export { deleteAccount } from "./deleteAccount";

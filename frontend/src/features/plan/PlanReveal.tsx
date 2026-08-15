@@ -1,63 +1,37 @@
 import { useState } from "react";
-import type { TrainingPlan, TrainingPlanFocus } from "../../lib/types";
-
-const FOCUS_LABELS: Record<TrainingPlanFocus, string> = {
-  chest: "Chest",
-  back: "Back",
-  legs: "Legs",
-  core: "Core",
-  cardio: "Cardio",
-  upper_body: "Upper Body",
-  other: "Other",
-  rest: "Rest day",
-};
-
-const WEEKDAY_NAMES = [
-  "Sunday",
-  "Monday",
-  "Tuesday",
-  "Wednesday",
-  "Thursday",
-  "Friday",
-  "Saturday",
-];
-
-// The plan's `weekStart` Firestore Timestamp isn't strongly typed on the
-// client (see TrainingPlan.weekStart: unknown), so duck-type it rather than
-// import the admin/client Timestamp class here.
-function toDate(value: unknown): Date | null {
-  if (
-    value &&
-    typeof value === "object" &&
-    "toDate" in value &&
-    typeof (value as { toDate: unknown }).toDate === "function"
-  ) {
-    return (value as { toDate: () => Date }).toDate();
-  }
-  return null;
-}
+import type { TrainingPlan, TrainingPlanDay } from "../../lib/types";
+import { dayLabel as computeDayLabel } from "./planDate";
+import { FOCUS_LABELS } from "./planFocus";
+import PlanDayExercises from "./PlanDayExercises";
+import PlanEditor from "./PlanEditor";
 
 interface PlanRevealProps {
   plan: TrainingPlan;
   mode: "initial" | "recalculated";
   onAccept?: () => void;
   onAdjust?: () => void;
+  // Lets the parent (which owns the actual plan state - local in onboarding,
+  // a Firestore snapshot on the home page) reflect an edit immediately rather
+  // than waiting on its own update path.
+  onPlanChange?: (days: TrainingPlanDay[]) => void;
 }
 
-export default function PlanReveal({ plan, mode, onAccept, onAdjust }: PlanRevealProps) {
-  const [showAdjustNote, setShowAdjustNote] = useState(false);
-  const weekStart = toDate(plan.weekStart);
+export default function PlanReveal({ plan, mode, onAccept, onAdjust, onPlanChange }: PlanRevealProps) {
+  const [editing, setEditing] = useState(false);
   const sortedDays = [...plan.days].sort((a, b) => a.dayIndex - b.dayIndex);
 
-  function dayLabel(dayIndex: number): string {
-    if (!weekStart) return `Day ${dayIndex + 1}`;
-    const weekday = (weekStart.getDay() + dayIndex) % 7;
-    return WEEKDAY_NAMES[weekday];
+  function handleAdjust() {
+    setEditing(true);
+    onAdjust?.();
   }
 
-  function handleAdjust() {
-    setShowAdjustNote(true);
-    onAdjust?.();
+  function handleSaved(updatedDays: TrainingPlanDay[]) {
+    setEditing(false);
+    onPlanChange?.(updatedDays);
+  }
+
+  if (editing) {
+    return <PlanEditor plan={plan} onSaved={handleSaved} onCancel={() => setEditing(false)} />;
   }
 
   return (
@@ -78,33 +52,28 @@ export default function PlanReveal({ plan, mode, onAccept, onAdjust }: PlanRevea
               className={"card plan-reveal-day" + (isTraining ? " plan-reveal-day-active" : "")}
             >
               <div className="plan-reveal-day-header">
-                <span className="plan-reveal-day-name">{dayLabel(day.dayIndex)}</span>
+                <span className="plan-reveal-day-name">{computeDayLabel(plan.weekStart, day.dayIndex)}</span>
                 <span className={"plan-reveal-focus" + (isTraining ? " plan-reveal-focus-active" : "")}>
                   {FOCUS_LABELS[day.focus]}
                 </span>
               </div>
               {day.note && <p className="plan-reveal-note">{day.note}</p>}
+              <PlanDayExercises exercises={day.exercises} />
             </div>
           );
         })}
       </div>
 
-      {mode === "initial" && (
-        <div className="plan-reveal-actions">
-          {showAdjustNote && (
-            <p className="plan-reveal-adjust-note">
-              Manual plan editing is coming soon. For now, start this week as-is; it'll
-              adjust automatically as you log workouts.
-            </p>
-          )}
+      <div className="plan-reveal-actions">
+        {mode === "initial" && (
           <button type="button" className="btn btn-primary plan-reveal-btn" onClick={onAccept}>
             Looks good, start this week
           </button>
-          <button type="button" className="btn btn-secondary plan-reveal-btn" onClick={handleAdjust}>
-            Adjust plan
-          </button>
-        </div>
-      )}
+        )}
+        <button type="button" className="btn btn-secondary plan-reveal-btn" onClick={handleAdjust}>
+          {mode === "initial" ? "Adjust plan" : "Edit plan"}
+        </button>
+      </div>
 
       <style>{`
         .plan-reveal {
@@ -175,15 +144,6 @@ export default function PlanReveal({ plan, mode, onAccept, onAdjust }: PlanRevea
           position: sticky;
           bottom: 0;
           padding-top: var(--space-2);
-        }
-        .plan-reveal-adjust-note {
-          margin: 0;
-          font-size: 13px;
-          color: var(--text-muted);
-          background: var(--surface-raised);
-          border: 1px solid var(--border);
-          border-radius: var(--radius-md);
-          padding: var(--space-3);
         }
         .plan-reveal-btn {
           width: 100%;

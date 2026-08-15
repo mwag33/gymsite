@@ -7,6 +7,8 @@ import type {
   ExperienceLevel,
   Goal,
   TrainingPlan,
+  TrainingPlanDay,
+  TrainingPlanFocus,
   UserSettings,
 } from "./types";
 
@@ -60,6 +62,40 @@ export async function generateInitialPlan(
   } catch (err) {
     wrapCallableError(err);
   }
+}
+
+export interface GenerateExercisesForPlanInput {
+  days: { dayIndex: number; focus: TrainingPlanFocus; note: string }[];
+  experience: ExperienceLevel;
+  sessionLengthMinutes: number;
+  gymId: string | null;
+  equipmentNotes?: string;
+  injuryNotes?: string;
+  preferences?: string;
+  weekStartsOn?: number;
+}
+
+export async function generateExercisesForPlan(
+  input: GenerateExercisesForPlanInput
+): Promise<TrainingPlan> {
+  try {
+    const call = httpsCallable<GenerateExercisesForPlanInput, TrainingPlan>(
+      functions,
+      "generateExercisesForPlan"
+    );
+    const result = await call(input);
+    return result.data;
+  } catch (err) {
+    wrapCallableError(err);
+  }
+}
+
+export async function updateTrainingPlan(days: TrainingPlanDay[]): Promise<void> {
+  const call = httpsCallable<{ days: TrainingPlanDay[] }, { success: boolean }>(
+    functions,
+    "updateTrainingPlan"
+  );
+  await call({ days });
 }
 
 export async function recalculatePlan(logId: string): Promise<TrainingPlan> {

@@ -35,7 +35,11 @@ export default function HomePage() {
         This week: <strong className="tnum">{totalSessions}</strong> sessions planned,{" "}
         <strong className="tnum">{restDays}</strong> rest days
       </div>
-      <PlanReveal plan={plan} mode="recalculated" />
+      <PlanReveal
+        plan={plan}
+        mode="recalculated"
+        onPlanChange={(days) => setPlan((prev) => (prev ? { ...prev, days } : prev))}
+      />
 
       <style>{`
         .home-page {

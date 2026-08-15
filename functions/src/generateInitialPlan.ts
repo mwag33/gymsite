@@ -85,8 +85,13 @@ export const generateInitialPlan = onCall<GenerateInitialPlanRequest>(
       basedOnLogId: null,
       weekStart,
       frequencyPerWeek: input.daysPerWeek,
-      days: generated.days,
+      // Exercises are proposed in a separate step (generateExercisesForPlan)
+      // once the user has reviewed/adjusted this schedule - this is a draft.
+      days: generated.days.map((day) => ({ ...day, exercises: [] })),
       modelVersion: MODEL_ID,
+      exercisesGeneratedAt: null,
+      exercisesLocked: false,
+      editedAt: null,
     };
 
     // Partial on purpose: merged with `{merge: true}` below, so fields not

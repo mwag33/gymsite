@@ -102,10 +102,41 @@ export interface MachineStatsHistoryEntry {
 // simple-mode logging category (see functions/src/gemini.ts).
 export type TrainingPlanFocus = MachineCategory | "rest";
 
+// Finer-grained than MachineCategory - used only for the plan's per-exercise
+// muscle-diagram visualization, not for logging or machine categorization.
+export type MuscleGroup =
+  | "chest"
+  | "upper_back"
+  | "lats"
+  | "shoulders"
+  | "biceps"
+  | "triceps"
+  | "forearms"
+  | "abs"
+  | "obliques"
+  | "glutes"
+  | "quads"
+  | "hamstrings"
+  | "calves"
+  | "cardio";
+
+export interface PlanExercise {
+  id: string; // `${dayIndex}-${index}`, stable for React keys and edits
+  name: string;
+  sets: number;
+  reps: string; // prescriptive, e.g. "8-12" or "30s" - not a logged rep count
+  targetMuscles: MuscleGroup[];
+  machineCategory: MachineCategory;
+  note?: string;
+}
+
 export interface TrainingPlanDay {
   dayIndex: number; // 0-6
   focus: TrainingPlanFocus;
   note: string;
+  // Absent on plan docs generated before exercises existed - always read via
+  // `day.exercises ?? []`, never assume this is present.
+  exercises?: PlanExercise[];
 }
 
 export interface TrainingPlan {
@@ -115,6 +146,11 @@ export interface TrainingPlan {
   frequencyPerWeek: number;
   days: TrainingPlanDay[];
   modelVersion: string;
+  // Absent on plan docs generated before exercises existed - always read via
+  // `plan.exercisesLocked ?? false`, never assume these are present.
+  exercisesGeneratedAt?: unknown | null;
+  exercisesLocked?: boolean;
+  editedAt?: unknown | null;
 }
 
 export const MACHINE_CATEGORIES: { value: MachineCategory; label: string }[] = [

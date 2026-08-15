@@ -1,9 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useActiveGym } from "../../contexts/ActiveGymContext";
-import { generateInitialPlan, type GenerateInitialPlanInput } from "../../lib/callables";
+import {
+  generateExercisesForPlan,
+  generateInitialPlan,
+  type GenerateExercisesForPlanInput,
+  type GenerateInitialPlanInput,
+} from "../../lib/callables";
 import PlanReveal from "../../features/plan/PlanReveal";
-import { GOAL_OPTIONS, type ExperienceLevel, type Goal, type TrainingPlan } from "../../lib/types";
+import { EDITABLE_FOCUS_OPTIONS, FOCUS_LABELS } from "../../features/plan/planFocus";
+import { dayLabel } from "../../features/plan/planDate";
+import { GOAL_OPTIONS, type ExperienceLevel, type Goal, type TrainingPlan, type TrainingPlanFocus } from "../../lib/types";
 
 type StepKey =
   | "goal"
@@ -15,7 +22,13 @@ type StepKey =
   | "injuries"
   | "reminders";
 
-type Phase = "questions" | "generating" | "reveal" | "error";
+type Phase =
+  | "questions"
+  | "generating-schedule"
+  | "schedule-review"
+  | "generating-exercises"
+  | "exercise-review"
+  | "error";
 
 const AUTO_ADVANCE_MS = 700;
 
@@ -58,6 +71,7 @@ export default function OnboardingFlow() {
   const [phase, setPhase] = useState<Phase>("questions");
   const [plan, setPlan] = useState<TrainingPlan | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [lastAction, setLastAction] = useState<"schedule" | "exercises">("schedule");
 
   const [goal, setGoal] = useState<Goal | null>(null);
   const [experience, setExperience] = useState<ExperienceLevel | null>(null);
@@ -83,14 +97,18 @@ export default function OnboardingFlow() {
     }, delayMs);
   }
 
-  async function submitPlan(reminders: boolean | null) {
+  function buildPreferences(reminders: boolean | null): string | undefined {
+    const parts: string[] = [];
+    if (reminders) parts.push("wants rest day reminders");
+    return parts.join("; ") || undefined;
+  }
+
+  async function submitSchedule(reminders: boolean | null) {
     if (timeoutRef.current) window.clearTimeout(timeoutRef.current);
-    setPhase("generating");
+    setLastAction("schedule");
+    setPhase("generating-schedule");
     setErrorMessage(null);
     try {
-      const preferenceParts: string[] = [];
-      if (reminders) preferenceParts.push("wants rest day reminders");
-
       const input: GenerateInitialPlanInput = {
         goal: goal as Goal,
         experience: experience as ExperienceLevel,
@@ -99,13 +117,47 @@ export default function OnboardingFlow() {
         gymId: activeGym?.id ?? null,
         equipmentNotes: equipmentNotes.trim() || undefined,
         injuryNotes: injuryNotes.trim() || undefined,
-        preferences: preferenceParts.join("; ") || undefined,
+        preferences: buildPreferences(reminders),
       };
       const result = await generateInitialPlan(input);
       setPlan(result);
-      setPhase("reveal");
+      setPhase("schedule-review");
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : "Something went wrong generating your plan.");
+      setPhase("error");
+    }
+  }
+
+  function updateDayFocus(dayIndex: number, focus: TrainingPlanFocus) {
+    setPlan((prev) =>
+      prev
+        ? { ...prev, days: prev.days.map((d) => (d.dayIndex === dayIndex ? { ...d, focus } : d)) }
+        : prev
+    );
+  }
+
+  async function submitExercises() {
+    if (!plan) return;
+    setLastAction("exercises");
+    setPhase("generating-exercises");
+    setErrorMessage(null);
+    try {
+      const input: GenerateExercisesForPlanInput = {
+        days: plan.days.map((d) => ({ dayIndex: d.dayIndex, focus: d.focus, note: d.note })),
+        experience: experience as ExperienceLevel,
+        sessionLengthMinutes: sessionLengthMinutes as number,
+        gymId: activeGym?.id ?? null,
+        equipmentNotes: equipmentNotes.trim() || undefined,
+        injuryNotes: injuryNotes.trim() || undefined,
+        preferences: buildPreferences(wantsReminders),
+      };
+      const result = await generateExercisesForPlan(input);
+      setPlan(result);
+      setPhase("exercise-review");
+    } catch (err) {
+      setErrorMessage(
+        err instanceof Error ? err.message : "Something went wrong suggesting exercises."
+      );
       setPhase("error");
     }
   }
@@ -162,12 +214,16 @@ export default function OnboardingFlow() {
     setMicrocopy(value ? "We'll nudge you on rest days." : "Got it. No rest-day nudges.");
     if (timeoutRef.current) window.clearTimeout(timeoutRef.current);
     timeoutRef.current = window.setTimeout(() => {
-      void submitPlan(value);
+      void submitSchedule(value);
     }, AUTO_ADVANCE_MS);
   }
 
-  if (phase === "generating") {
-    return <GeneratingScreen />;
+  if (phase === "generating-schedule") {
+    return <GeneratingScreen title="Drafting your weekly split..." />;
+  }
+
+  if (phase === "generating-exercises") {
+    return <GeneratingScreen title="Picking exercises for your week..." />;
   }
 
   if (phase === "error") {
@@ -179,7 +235,7 @@ export default function OnboardingFlow() {
           <button
             type="button"
             className="btn btn-primary onboarding-wide-btn"
-            onClick={() => void submitPlan(wantsReminders)}
+            onClick={() => void (lastAction === "schedule" ? submitSchedule(wantsReminders) : submitExercises())}
           >
             Try again
           </button>
@@ -189,11 +245,59 @@ export default function OnboardingFlow() {
     );
   }
 
-  if (phase === "reveal" && plan) {
+  if (phase === "schedule-review" && plan) {
+    const sortedDays = [...plan.days].sort((a, b) => a.dayIndex - b.dayIndex);
+    return (
+      <div className="onboarding-screen">
+        <h1 className="onboarding-reveal-title">Your weekly split</h1>
+        <p className="onboarding-hint">
+          Tap a day to change its focus, or mark it a rest day. When it looks right, we'll
+          suggest specific exercises for each training day.
+        </p>
+        <div className="onboarding-schedule-days">
+          {sortedDays.map((day) => (
+            <div key={day.dayIndex} className="card onboarding-schedule-day">
+              <span className="onboarding-schedule-day-name">{dayLabel(plan.weekStart, day.dayIndex)}</span>
+              <div className="onboarding-schedule-chip-row">
+                {EDITABLE_FOCUS_OPTIONS.map((focus) => (
+                  <button
+                    key={focus}
+                    type="button"
+                    className={
+                      "onboarding-schedule-chip" +
+                      (day.focus === focus ? " onboarding-schedule-chip-selected" : "")
+                    }
+                    onClick={() => updateDayFocus(day.dayIndex, focus)}
+                  >
+                    {FOCUS_LABELS[focus]}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+        <button
+          type="button"
+          className="btn btn-primary onboarding-wide-btn"
+          onClick={() => void submitExercises()}
+        >
+          Suggest exercises
+        </button>
+        <OnboardingStyles />
+      </div>
+    );
+  }
+
+  if (phase === "exercise-review" && plan) {
     return (
       <div className="onboarding-screen">
         <h1 className="onboarding-reveal-title">Your first week</h1>
-        <PlanReveal plan={plan} mode="initial" onAccept={() => navigate("/", { replace: true })} />
+        <PlanReveal
+          plan={plan}
+          mode="initial"
+          onAccept={() => navigate("/", { replace: true })}
+          onPlanChange={(days) => setPlan((prev) => (prev ? { ...prev, days } : prev))}
+        />
         <OnboardingStyles />
       </div>
     );
@@ -384,11 +488,11 @@ export default function OnboardingFlow() {
   );
 }
 
-function GeneratingScreen() {
+function GeneratingScreen({ title }: { title: string }) {
   return (
     <div className="onboarding-screen">
       <div className="onboarding-generating">
-        <h1>Generating your first week...</h1>
+        <h1>{title}</h1>
         <div className="onboarding-skeleton-list">
           {Array.from({ length: 5 }).map((_, i) => (
             <div key={i} className="card onboarding-skeleton-day" style={{ animationDelay: `${i * 0.08}s` }}>
@@ -537,6 +641,38 @@ function OnboardingStyles() {
       }
       .onboarding-reveal-title {
         font-size: 22px;
+      }
+      .onboarding-schedule-days {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-3);
+      }
+      .onboarding-schedule-day {
+        display: flex;
+        flex-direction: column;
+        gap: var(--space-2);
+      }
+      .onboarding-schedule-day-name {
+        font-weight: 600;
+        font-size: 14px;
+      }
+      .onboarding-schedule-chip-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: var(--space-2);
+      }
+      .onboarding-schedule-chip {
+        font-size: 12px;
+        padding: 6px 10px;
+        border-radius: 999px;
+        border: 1px solid var(--border);
+        background: var(--surface-raised);
+        color: var(--text-muted);
+        cursor: pointer;
+      }
+      .onboarding-schedule-chip-selected {
+        border-color: var(--accent);
+        color: var(--accent);
       }
       .onboarding-generating {
         display: flex;

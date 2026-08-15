@@ -105,10 +105,41 @@ export type TrainingPlanFocus =
   | "upper_body"
   | "rest";
 
+// Finer-grained than MachineCategory - used only for the plan's per-exercise
+// muscle-diagram visualization on the client, not for logging or categorization.
+export type MuscleGroup =
+  | "chest"
+  | "upper_back"
+  | "lats"
+  | "shoulders"
+  | "biceps"
+  | "triceps"
+  | "forearms"
+  | "abs"
+  | "obliques"
+  | "glutes"
+  | "quads"
+  | "hamstrings"
+  | "calves"
+  | "cardio";
+
+export interface PlanExercise {
+  id: string;
+  name: string;
+  sets: number;
+  reps: string;
+  targetMuscles: MuscleGroup[];
+  machineCategory: MachineCategory;
+  note?: string;
+}
+
 export interface TrainingPlanDay {
   dayIndex: number;
   focus: TrainingPlanFocus;
   note: string;
+  // Absent on plan docs written before exercises existed - always read via
+  // `day.exercises ?? []`, never assume this is present.
+  exercises?: PlanExercise[];
 }
 
 export interface TrainingPlanDoc {
@@ -118,6 +149,11 @@ export interface TrainingPlanDoc {
   frequencyPerWeek: number;
   days: TrainingPlanDay[];
   modelVersion: string;
+  // Absent on plan docs written before exercises existed - always read via
+  // `plan.exercisesLocked ?? false`, never assume these are present.
+  exercisesGeneratedAt?: Timestamp | null;
+  exercisesLocked?: boolean;
+  editedAt?: Timestamp | null;
 }
 
 export interface FeatureFlagsDoc {

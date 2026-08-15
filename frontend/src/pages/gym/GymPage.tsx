@@ -23,6 +23,9 @@ import {
   type Machine,
   type MachineCategory,
 } from "../../lib/types";
+import { MACHINE_CATALOG, findCatalogMachine } from "../../lib/machineCatalog";
+import MachineIcon from "../../components/MachineIcon";
+import MuscleDiagram from "../../components/MuscleDiagram";
 
 type GymDoc = Gym & { id: string };
 type MachineDoc = Machine & { id: string };
@@ -218,6 +221,57 @@ export default function GymPage() {
     }
   }
 
+  // ---------- Quick-add common machines ----------
+  const [showQuickAdd, setShowQuickAdd] = useState(false);
+  const [selectedCatalogIds, setSelectedCatalogIds] = useState<Set<string>>(new Set());
+  const [quickAdding, setQuickAdding] = useState(false);
+  const [quickAddError, setQuickAddError] = useState<string | null>(null);
+
+  const existingMachineNames = useMemo(
+    () => new Set((machines ?? []).map((m) => m.name.toLowerCase())),
+    [machines]
+  );
+
+  const availableCatalogMachines = useMemo(
+    () => MACHINE_CATALOG.filter((c) => !existingMachineNames.has(c.name.toLowerCase())),
+    [existingMachineNames]
+  );
+
+  function toggleCatalogSelection(id: string) {
+    setSelectedCatalogIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function handleQuickAdd() {
+    if (!user || !activeGym || selectedCatalogIds.size === 0) return;
+    setQuickAdding(true);
+    setQuickAddError(null);
+    try {
+      const toAdd = MACHINE_CATALOG.filter((c) => selectedCatalogIds.has(c.id));
+      await Promise.all(
+        toAdd.map((c) =>
+          addDoc(collection(db, "gyms", activeGym.id, "machines"), {
+            name: c.name,
+            category: c.category,
+            addedBy: user.uid,
+            createdAt: serverTimestamp(),
+            archived: false,
+          })
+        )
+      );
+      setSelectedCatalogIds(new Set());
+      setShowQuickAdd(false);
+    } catch (err) {
+      setQuickAddError(err instanceof Error ? err.message : "Couldn't add machines.");
+    } finally {
+      setQuickAdding(false);
+    }
+  }
+
   function handleReportDuplicate(machineId: string) {
     // v1 stub: there's no moderation queue or Cloud Function for duplicate
     // reports yet, so this just acknowledges the click locally.
@@ -373,14 +427,63 @@ export default function GymPage() {
         <section className="gym-machines-section">
           <div className="gym-machines-header">
             <h3>Machines</h3>
-            <button
-              type="button"
-              className="btn btn-secondary"
-              onClick={() => setShowAddMachineForm((v) => !v)}
-            >
-              {showAddMachineForm ? "Cancel" : "+ Add machine"}
-            </button>
+            <div className="gym-machines-header-actions">
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setShowQuickAdd((v) => !v)}
+              >
+                {showQuickAdd ? "Cancel" : "Quick add common machines"}
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => setShowAddMachineForm((v) => !v)}
+              >
+                {showAddMachineForm ? "Cancel" : "+ Add machine"}
+              </button>
+            </div>
           </div>
+
+          {showQuickAdd && (
+            <div className="card gym-quick-add">
+              {availableCatalogMachines.length === 0 ? (
+                <p className="muted">
+                  All 20 common machines are already listed for this gym.
+                </p>
+              ) : (
+                <>
+                  <ul className="gym-quick-add-list">
+                    {availableCatalogMachines.map((c) => (
+                      <li key={c.id} className="gym-quick-add-row">
+                        <label className="gym-quick-add-label">
+                          <input
+                            type="checkbox"
+                            checked={selectedCatalogIds.has(c.id)}
+                            onChange={() => toggleCatalogSelection(c.id)}
+                          />
+                          <MachineIcon iconId={c.id} />
+                          <span className="gym-quick-add-name">{c.name}</span>
+                        </label>
+                        <MuscleDiagram targetMuscles={c.primaryMuscles} />
+                      </li>
+                    ))}
+                  </ul>
+                  {quickAddError && <p className="error-text">{quickAddError}</p>}
+                  <button
+                    type="button"
+                    className="btn btn-primary"
+                    disabled={quickAdding || selectedCatalogIds.size === 0}
+                    onClick={handleQuickAdd}
+                  >
+                    {quickAdding
+                      ? "Adding…"
+                      : `Add selected${selectedCatalogIds.size > 0 ? ` (${selectedCatalogIds.size})` : ""}`}
+                  </button>
+                </>
+              )}
+            </div>
+          )}
 
           {showAddMachineForm && (
             <form onSubmit={handleAddMachine} className="card gym-add-form">
@@ -443,19 +546,30 @@ export default function GymPage() {
                 <div key={c.value} className="gym-category-group">
                   <h4>{c.label}</h4>
                   <ul className="gym-machine-list">
-                    {machinesByCategory.get(c.value)!.map((m) => (
-                      <li key={m.id} className="gym-machine-row">
-                        <span>{m.name}</span>
-                        <button
-                          type="button"
-                          className="gym-report-btn"
-                          disabled={reportedIds.has(m.id)}
-                          onClick={() => handleReportDuplicate(m.id)}
-                        >
-                          {reportedIds.has(m.id) ? "Thanks, we'll take a look" : "Report duplicate"}
-                        </button>
-                      </li>
-                    ))}
+                    {machinesByCategory.get(c.value)!.map((m) => {
+                      const catalogMatch = findCatalogMachine(m.name);
+                      return (
+                        <li key={m.id} className="gym-machine-row">
+                          <span className="gym-machine-row-main">
+                            {catalogMatch ? (
+                              <MachineIcon iconId={catalogMatch.id} width={22} height={22} />
+                            ) : (
+                              <MachineIcon iconId="" width={22} height={22} />
+                            )}
+                            <span>{m.name}</span>
+                            {catalogMatch && <MuscleDiagram targetMuscles={catalogMatch.primaryMuscles} />}
+                          </span>
+                          <button
+                            type="button"
+                            className="gym-report-btn"
+                            disabled={reportedIds.has(m.id)}
+                            onClick={() => handleReportDuplicate(m.id)}
+                          >
+                            {reportedIds.has(m.id) ? "Thanks, we'll take a look" : "Report duplicate"}
+                          </button>
+                        </li>
+                      );
+                    })}
                   </ul>
                 </div>
               ))}
@@ -559,9 +673,55 @@ export default function GymPage() {
           display: flex;
           align-items: center;
           justify-content: space-between;
+          gap: var(--space-3);
+          flex-wrap: wrap;
         }
         .gym-machines-header h3 {
           font-size: 16px;
+        }
+        .gym-machines-header-actions {
+          display: flex;
+          gap: var(--space-2);
+          flex-wrap: wrap;
+        }
+        .gym-quick-add {
+          display: flex;
+          flex-direction: column;
+          gap: var(--space-3);
+        }
+        .gym-quick-add-list {
+          list-style: none;
+          margin: 0;
+          padding: 0;
+          display: flex;
+          flex-direction: column;
+          gap: var(--space-2);
+          max-height: 360px;
+          overflow-y: auto;
+        }
+        .gym-quick-add-row {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: var(--space-3);
+          padding: var(--space-2) var(--space-3);
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-md);
+        }
+        .gym-quick-add-label {
+          display: flex;
+          align-items: center;
+          gap: var(--space-2);
+          cursor: pointer;
+        }
+        .gym-quick-add-name {
+          font-size: 14px;
+        }
+        .gym-machine-row-main {
+          display: flex;
+          align-items: center;
+          gap: var(--space-2);
         }
         .gym-machine-search {
           margin-bottom: var(--space-1);

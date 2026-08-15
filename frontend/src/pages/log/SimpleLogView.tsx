@@ -18,7 +18,6 @@ const TODAY_LABEL = new Date().toLocaleDateString(undefined, {
 
 export function SimpleLogView({ uid, gymId, onLogged }: SimpleLogViewProps) {
   const [selected, setSelected] = useState<MachineCategory | null>(null);
-  const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -35,7 +34,6 @@ export function SimpleLogView({ uid, gymId, onLogged }: SimpleLogViewProps) {
         createdAt: serverTimestamp(),
       });
       setSelected(null);
-      setNote("");
       onLogged(ref.id);
     } catch (err) {
       setError(
@@ -69,24 +67,6 @@ export function SimpleLogView({ uid, gymId, onLogged }: SimpleLogViewProps) {
         <div className="card log-confirm-panel">
           <p className="log-confirm-title">{selectedLabel}</p>
           <p className="log-confirm-date">{TODAY_LABEL}</p>
-
-          <label className="log-note-label" htmlFor="log-note">
-            Note (optional)
-          </label>
-          {/*
-            Not persisted: isValidWorkoutLog() in firestore.rules only allows
-            mode/gymId/date/bodyParts/exercises/createdAt on this doc — any
-            extra field (including a note) is rejected by hasOnly(). This
-            stays local-only UI until the schema/rules add a field for it.
-          */}
-          <textarea
-            id="log-note"
-            className="log-note-input"
-            rows={2}
-            value={note}
-            onChange={(e) => setNote(e.target.value)}
-            placeholder="e.g. felt strong today"
-          />
 
           {error && <p className="log-error-text">{error}</p>}
 

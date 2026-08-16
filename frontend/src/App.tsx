@@ -15,6 +15,7 @@ import SignIn from "./pages/auth/SignIn";
 const OnboardingFlow = lazy(() => import("./pages/onboarding/OnboardingFlow"));
 const HomePage = lazy(() => import("./pages/home/HomePage"));
 const LogWorkoutPage = lazy(() => import("./pages/log/LogWorkoutPage"));
+const SessionDetailPage = lazy(() => import("./pages/session/SessionDetailPage"));
 const GymPage = lazy(() => import("./pages/gym/GymPage"));
 const ProgressPage = lazy(() => import("./pages/progress/ProgressPage"));
 const ProfilePage = lazy(() => import("./pages/profile/ProfilePage"));
@@ -40,6 +41,8 @@ export default function App() {
                   <Route element={<AppShell />}>
                     <Route index element={<HomePage />} />
                     <Route path="/log" element={<LogWorkoutPage />} />
+                    <Route path="/log/:date" element={<LogWorkoutPage />} />
+                    <Route path="/session/:date" element={<SessionDetailPage />} />
                     <Route path="/progress" element={<ProgressPage />} />
                     <Route path="/gym" element={<GymPage />} />
                     <Route path="/profile" element={<ProfilePage />} />

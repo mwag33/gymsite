@@ -1,77 +1,74 @@
 import { useState } from "react";
-import type { TrainingPlan, TrainingPlanDay } from "../../lib/types";
-import { dayLabel as computeDayLabel } from "./planDate";
+import type { Session } from "../../lib/types";
+import { weekdayLabel } from "./planDate";
 import { FOCUS_LABELS } from "./planFocus";
 import PlanDayExercises from "./PlanDayExercises";
 import PlanEditor from "./PlanEditor";
 
 interface PlanRevealProps {
-  plan: TrainingPlan;
-  mode: "initial" | "recalculated";
+  // Onboarding's first-week slice only — never the full 28-day schedule (see
+  // OnboardingFlow.tsx's schedule-review/exercise-review phases). Nothing
+  // outside onboarding uses this component; Home reads sessions directly via
+  // TodayHero/DateStrip/UpcomingList instead.
+  sessions: Session[];
   onAccept?: () => void;
   onAdjust?: () => void;
-  // Lets the parent (which owns the actual plan state - local in onboarding,
-  // a Firestore snapshot on the home page) reflect an edit immediately rather
-  // than waiting on its own update path.
-  onPlanChange?: (days: TrainingPlanDay[]) => void;
+  // Lets the parent (onboarding, which owns the local plan state) reflect an
+  // edit immediately rather than waiting on its own subscription.
+  onSessionsChange?: (sessions: Session[]) => void;
 }
 
-export default function PlanReveal({ plan, mode, onAccept, onAdjust, onPlanChange }: PlanRevealProps) {
+export default function PlanReveal({ sessions, onAccept, onAdjust, onSessionsChange }: PlanRevealProps) {
   const [editing, setEditing] = useState(false);
-  const sortedDays = [...plan.days].sort((a, b) => a.dayIndex - b.dayIndex);
+  const sortedSessions = [...sessions].sort((a, b) => a.date.localeCompare(b.date));
 
   function handleAdjust() {
     setEditing(true);
     onAdjust?.();
   }
 
-  function handleSaved(updatedDays: TrainingPlanDay[]) {
+  function handleSaved(updated: Session[]) {
     setEditing(false);
-    onPlanChange?.(updatedDays);
+    onSessionsChange?.(updated);
   }
 
   if (editing) {
-    return <PlanEditor plan={plan} onSaved={handleSaved} onCancel={() => setEditing(false)} />;
+    return (
+      <PlanEditor sessions={sessions} onSaved={handleSaved} onCancel={() => setEditing(false)} />
+    );
   }
 
   return (
     <div className="plan-reveal">
-      {mode === "recalculated" && plan.basedOnLogId != null && (
-        <div className="plan-reveal-updated">
-          <span className="plan-reveal-updated-dot" aria-hidden />
-          Plan updated
-        </div>
-      )}
-
       <div className="plan-reveal-days">
-        {sortedDays.map((day) => {
-          const isTraining = day.focus !== "rest";
+        {sortedSessions.map((session) => {
+          const isTraining = session.focus !== "rest";
           return (
             <div
-              key={day.dayIndex}
+              key={session.id}
               className={"card plan-reveal-day" + (isTraining ? " plan-reveal-day-active" : "")}
             >
               <div className="plan-reveal-day-header">
-                <span className="plan-reveal-day-name">{computeDayLabel(plan.weekStart, day.dayIndex)}</span>
+                <span className="plan-reveal-day-name">{weekdayLabel(session.date)}</span>
                 <span className={"plan-reveal-focus" + (isTraining ? " plan-reveal-focus-active" : "")}>
-                  {FOCUS_LABELS[day.focus]}
+                  {FOCUS_LABELS[session.focus]}
                 </span>
               </div>
-              {day.note && <p className="plan-reveal-note">{day.note}</p>}
-              <PlanDayExercises exercises={day.exercises} />
+              {session.note && <p className="plan-reveal-note">{session.note}</p>}
+              <PlanDayExercises exercises={session.exercises ?? undefined} />
             </div>
           );
         })}
       </div>
 
       <div className="plan-reveal-actions">
-        {mode === "initial" && (
+        {onAccept && (
           <button type="button" className="btn btn-primary plan-reveal-btn" onClick={onAccept}>
             Looks good, start this week
           </button>
         )}
         <button type="button" className="btn btn-secondary plan-reveal-btn" onClick={handleAdjust}>
-          {mode === "initial" ? "Adjust plan" : "Edit plan"}
+          Adjust plan
         </button>
       </div>
 
@@ -80,25 +77,6 @@ export default function PlanReveal({ plan, mode, onAccept, onAdjust, onPlanChang
           display: flex;
           flex-direction: column;
           gap: var(--space-4);
-        }
-        .plan-reveal-updated {
-          display: inline-flex;
-          align-items: center;
-          gap: var(--space-2);
-          align-self: flex-start;
-          background: var(--surface-raised);
-          border: 1px solid var(--border);
-          border-radius: var(--radius-md);
-          padding: var(--space-2) var(--space-3);
-          font-size: 13px;
-          font-weight: 600;
-          color: var(--text-muted);
-        }
-        .plan-reveal-updated-dot {
-          width: 8px;
-          height: 8px;
-          border-radius: 50%;
-          background: var(--success);
         }
         .plan-reveal-days {
           display: flex;

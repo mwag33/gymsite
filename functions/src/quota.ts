@@ -61,8 +61,9 @@ export async function checkAndConsumeAiQuota(uid: string): Promise<void> {
  * never reached a real answer (a transient Gemini error, a bad model name,
  * a network blip) would otherwise permanently cost the user a unit of their
  * daily cap through no fault of their own. Call this from the caller's catch
- * block whenever generateTrainingPlan() throws, so only attempts that
- * actually produced a plan count against the limit.
+ * block whenever a Gemini call (schedule generation, exercise fill, etc.)
+ * throws, so only attempts that actually produced a result count against
+ * the limit.
  */
 export async function refundAiQuota(uid: string): Promise<void> {
   const ref = db.doc(`users/${uid}/meta/aiQuota`);

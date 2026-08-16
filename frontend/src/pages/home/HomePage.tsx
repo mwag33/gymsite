@@ -1,21 +1,61 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { doc, onSnapshot } from "firebase/firestore";
 import { db } from "../../lib/firebase";
 import { useAuth } from "../../contexts/AuthContext";
-import PlanReveal from "../../features/plan/PlanReveal";
-import type { TrainingPlan } from "../../lib/types";
+import { useActiveGym } from "../../contexts/ActiveGymContext";
+import { generateExercisesForWeek } from "../../lib/callables";
+import AdherenceMeter from "../../components/AdherenceMeter";
+import TodayHero from "../../features/plan/TodayHero";
+import DateStrip from "../../features/plan/DateStrip";
+import UpcomingList from "../../features/plan/UpcomingList";
+import MonthAgenda from "../../features/plan/MonthAgenda";
+import { addDaysToKey, toLocalDateKey } from "../../features/plan/planDate";
+import type { PlanDoc } from "../../lib/types";
+
+// A week is "close enough to running out" once the exercise horizon is
+// within this many days of today — matches the plan's rolling-fill trigger.
+const HORIZON_REFILL_THRESHOLD_DAYS = 7;
+// How many days of the rolling window the date strip shows at once.
+const DATE_STRIP_WINDOW_DAYS = 7;
 
 export default function HomePage() {
-  const { user } = useAuth();
-  const [plan, setPlan] = useState<TrainingPlan | null | undefined>(undefined);
+  const { user, profile } = useAuth();
+  const { activeGym } = useActiveGym();
+  const [plan, setPlan] = useState<PlanDoc | null | undefined>(undefined);
+  const [monthOpen, setMonthOpen] = useState(false);
+  const horizonRefillRequested = useRef<string | null>(null);
 
   useEffect(() => {
     if (!user) return;
     setPlan(undefined);
-    return onSnapshot(doc(db, "users", user.uid, "trainingPlans", "current"), (snap) => {
-      setPlan(snap.exists() ? (snap.data() as TrainingPlan) : null);
+    return onSnapshot(doc(db, "users", user.uid, "plans", "current"), (snap) => {
+      setPlan(snap.exists() ? (snap.data() as PlanDoc) : null);
     });
   }, [user]);
+
+  const today = useMemo(() => toLocalDateKey(new Date()), []);
+
+  // Rolling exercise-horizon extension: the only place this fires. Guarded
+  // by a ref keyed on the horizon value itself so a snapshot re-render (or a
+  // horizon that hasn't moved yet) never re-issues the same AI call.
+  useEffect(() => {
+    if (!plan) return;
+    const refillThreshold = addDaysToKey(today, HORIZON_REFILL_THRESHOLD_DAYS);
+    const needsRefill = plan.exerciseHorizon <= refillThreshold;
+    if (!needsRefill) return;
+    if (horizonRefillRequested.current === plan.exerciseHorizon) return;
+    horizonRefillRequested.current = plan.exerciseHorizon;
+    void generateExercisesForWeek({
+      experience: profile?.experienceLevel ?? "some_experience",
+      sessionLengthMinutes: profile?.sessionLengthMinutes ?? 45,
+      gymId: activeGym?.id ?? null,
+    }).catch(() => {
+      // Best-effort background refill — if it fails, the next mount (or the
+      // horizon still being stale) will simply retry. Not worth surfacing a
+      // toast for a background maintenance call.
+      horizonRefillRequested.current = null;
+    });
+  }, [plan, today, profile, activeGym]);
 
   if (plan === undefined) {
     return <div className="card">Loading your plan...</div>;
@@ -25,31 +65,43 @@ export default function HomePage() {
     return <div className="card">Setting up your plan... this usually only takes a moment.</div>;
   }
 
-  const trainingDays = plan.days.filter((d) => d.focus !== "rest");
-  const totalSessions = plan.frequencyPerWeek || trainingDays.length;
-  const restDays = plan.days.length - trainingDays.length;
+  const todaySession = plan.sessions.find((s) => s.date === today) ?? null;
+  const windowEnd = addDaysToKey(today, DATE_STRIP_WINDOW_DAYS);
+  const stripSessions = plan.sessions.filter((s) => s.date >= today && s.date <= windowEnd);
+
+  const trainingThisWindow = stripSessions.filter((s) => s.focus !== "rest");
+  const completedThisWindow = trainingThisWindow.filter(
+    (s) => s.status === "done" || s.status === "partial"
+  ).length;
 
   return (
     <div className="home-page">
-      <div className="home-summary">
-        This week: <strong className="tnum">{totalSessions}</strong> sessions planned,{" "}
-        <strong className="tnum">{restDays}</strong> rest days
-      </div>
-      <PlanReveal
-        plan={plan}
-        mode="recalculated"
-        onPlanChange={(days) => setPlan((prev) => (prev ? { ...prev, days } : prev))}
+      <AdherenceMeter
+        compact
+        completed={completedThisWindow}
+        target={plan.frequencyPerWeek || trainingThisWindow.length || null}
       />
+
+      <TodayHero session={todaySession} />
+
+      <DateStrip sessions={stripSessions} today={today} />
+
+      <UpcomingList sessions={plan.sessions} today={today} onOpenMonth={() => setMonthOpen(true)} />
+
+      {monthOpen && (
+        <MonthAgenda
+          sessions={plan.sessions}
+          today={today}
+          weekStartsOn={profile?.settings?.weekStartsOn ?? 1}
+          onClose={() => setMonthOpen(false)}
+        />
+      )}
 
       <style>{`
         .home-page {
           display: flex;
           flex-direction: column;
           gap: var(--space-4);
-        }
-        .home-summary {
-          color: var(--text-muted);
-          font-size: 14px;
         }
       `}</style>
     </div>

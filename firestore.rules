@@ -56,16 +56,17 @@ service cloud.firestore {
         }
       }
 
-      // ---------- /users/{uid}/trainingPlans ----------
-      // Generated and written only by Cloud Functions callables (Admin
-      // SDK), e.g. an AI plan generator. Owner may read.
+      // ---------- /users/{uid}/plans ----------
+      // Generated and written only by Cloud Functions callables and triggers
+      // (Admin SDK) - schedule/exercise generation, the deterministic
+      // rebalance engine, and the hourly sweep. Owner may read.
       //
       // Note: Firestore document paths must alternate collection/document
       // and therefore need an even number of segments. "history" is
       // modeled as a subcollection of the `current` document (not a
-      // sibling document) so that /users/{uid}/trainingPlans/current/
+      // sibling document) so that /users/{uid}/plans/current/
       // history/{planId} resolves to a real document (6 segments).
-      match /trainingPlans/current {
+      match /plans/current {
         allow read: if isOwner(uid);
         allow write: if false;
 
@@ -77,10 +78,11 @@ service cloud.firestore {
     }
 
     function isValidWorkoutLog(data) {
-      let allowedKeys = ['mode', 'gymId', 'date', 'bodyParts', 'exercises', 'createdAt'];
+      let allowedKeys = ['mode', 'gymId', 'date', 'bodyParts', 'exercises', 'createdAt', 'plannedSessionId'];
       return data.keys().hasOnly(allowedKeys)
         && data.mode in ['simple', 'detailed']
-        && data.date is timestamp;
+        && data.date is timestamp
+        && (data.plannedSessionId == null || data.plannedSessionId is string);
     }
 
     // ---------- /gyms/{gymId} ----------

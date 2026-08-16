@@ -9,6 +9,7 @@ export interface UserSettings {
   notificationsEnabled: boolean;
   activeGymId: string | null;
   logModeDefault: "simple" | "detailed";
+  timezone: string; // IANA, e.g. "Europe/Berlin" - drives the daily sweep's "today" and date stamping
 }
 
 export const ALLOWED_USER_SETTINGS_KEYS: (keyof UserSettings)[] = [
@@ -17,6 +18,7 @@ export const ALLOWED_USER_SETTINGS_KEYS: (keyof UserSettings)[] = [
   "notificationsEnabled",
   "activeGymId",
   "logModeDefault",
+  "timezone",
 ];
 
 export interface UserDoc {
@@ -80,6 +82,10 @@ export interface WorkoutLogDoc {
   bodyParts?: string[];
   exercises?: WorkoutLogExercise[];
   createdAt: Timestamp;
+  // FK to Session.id, set once by the client at log-create time. Null for a
+  // free-form log with no scheduled session behind it. Never stamped after
+  // creation - logs stay append-only/immutable.
+  plannedSessionId: string | null;
 }
 
 export interface MachineStatsDoc {
@@ -133,27 +139,49 @@ export interface PlanExercise {
   note?: string;
 }
 
-export interface TrainingPlanDay {
-  dayIndex: number;
+export type SessionStatus = "upcoming" | "done" | "partial" | "skipped" | "swapped";
+
+// A session's provenance - lets the engine and any future debugging tell
+// whether a given day came from the AI schedule call, the AI exercise-fill
+// call, the deterministic rebalancer absorbing a miss, or a manual edit.
+export type SessionSource = "ai_schedule" | "ai_exercises" | "deterministic_reschedule" | "manual_edit";
+
+export interface Session {
+  // Stable id, survives reschedules - the FK target for WorkoutLogDoc.plannedSessionId.
+  // Never derive this from date/index; dates can move (rebalance), ids don't.
+  id: string;
+  date: string; // "YYYY-MM-DD", user-local calendar date (see UserSettings.timezone)
   focus: TrainingPlanFocus;
   note: string;
-  // Absent on plan docs written before exercises existed - always read via
-  // `day.exercises ?? []`, never assume this is present.
-  exercises?: PlanExercise[];
+  // null = outside the exercise horizon (schedule-only so far), [] = rest day
+  // (deliberately empty, not "not yet generated"), non-empty = ready to log.
+  exercises: PlanExercise[] | null;
+  status: SessionStatus;
+  // Manual per-session lock, set only via updateSession. Replaces the old
+  // plan-wide exercisesLocked flag - one edited day no longer freezes the
+  // whole plan.
+  locked: boolean;
+  source: SessionSource;
+  loggedAt?: Timestamp | null;
+  // What was actually logged, when status === "swapped" and it differs from `focus`.
+  swappedFocus?: TrainingPlanFocus | null;
+  // Idempotency marker: when the deterministic rebalancer absorbs a missed
+  // session into this one, it stamps the source session's id here so a
+  // redelivered trigger/sweep event recognizes the rebalance already happened.
+  rescheduledFromSessionId?: string | null;
 }
 
-export interface TrainingPlanDoc {
-  generatedAt: Timestamp;
-  basedOnLogId: string | null;
-  weekStart: Timestamp;
+export interface PlanDoc {
+  planId: string; // increments on each full schedule regeneration, groups archived history
+  timezone: string; // IANA, copied from UserSettings at generation time
+  scheduleGeneratedAt: Timestamp;
+  scheduleModelVersion: string;
+  exercisesModelVersion: string | null;
   frequencyPerWeek: number;
-  days: TrainingPlanDay[];
-  modelVersion: string;
-  // Absent on plan docs written before exercises existed - always read via
-  // `plan.exercisesLocked ?? false`, never assume these are present.
-  exercisesGeneratedAt?: Timestamp | null;
-  exercisesLocked?: boolean;
-  editedAt?: Timestamp | null;
+  exerciseHorizon: string; // "YYYY-MM-DD" - sessions on/before this date have exercises filled
+  needsScheduleRefresh: boolean; // set by the daily sweep on adherence drift; client offers a refresh
+  sessions: Session[]; // rolling window (~6 weeks), sorted by date ascending
+  lastSweepAt: Timestamp;
 }
 
 export interface FeatureFlagsDoc {

@@ -1,128 +1,135 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
+import { addDoc, collection, doc, onSnapshot, serverTimestamp, Timestamp } from "firebase/firestore";
+import { db } from "../../lib/firebase";
 import { useAuth } from "../../contexts/AuthContext";
 import { useActiveGym } from "../../contexts/ActiveGymContext";
-import { updateUserSettings, recalculatePlan } from "../../lib/callables";
-import type { AiRateLimitError } from "../../lib/callables";
-import type { WorkoutMode } from "../../lib/types";
+import { toLocalDateKey } from "../../features/plan/planDate";
+import type { ExerciseEntry, PlanDoc } from "../../lib/types";
 import { SimpleLogView } from "./SimpleLogView";
-import { DetailedLogView } from "./DetailedLogView";
-
-type PostLogPhase = "recalculating" | "done" | "error";
-
-interface PostLogStatus {
-  phase: PostLogPhase;
-  logId: string;
-  message?: string;
-  isRateLimit?: boolean;
-}
+import SessionLogList from "./SessionLogList";
+import CatalogLogView from "./CatalogLogView";
 
 export default function LogWorkoutPage() {
-  const { user, profile } = useAuth();
+  const { user } = useAuth();
   const { activeGym } = useActiveGym();
+  const navigate = useNavigate();
+  const { date: dateParam } = useParams<{ date?: string }>();
 
-  const [mode, setMode] = useState<WorkoutMode>("simple");
-  const modeInitialized = useRef(false);
+  const [plan, setPlan] = useState<PlanDoc | null | undefined>(undefined);
+  const [showCatalog, setShowCatalog] = useState(false);
+  const [finishing, setFinishing] = useState(false);
+  const [finishError, setFinishError] = useState<string | null>(null);
+  const [logGeneration, setLogGeneration] = useState(0);
+  const [justLogged, setJustLogged] = useState(false);
 
-  // Default the toggle to the user's saved preference the first time the
-  // profile becomes available; afterwards the toggle is fully user-driven.
   useEffect(() => {
-    if (!modeInitialized.current && profile) {
-      setMode(profile.settings.logModeDefault ?? "simple");
-      modeInitialized.current = true;
-    }
-  }, [profile]);
-
-  const [status, setStatus] = useState<PostLogStatus | null>(null);
-
-  function handleModeChange(next: WorkoutMode) {
-    setMode(next);
-    modeInitialized.current = true;
-    void updateUserSettings({ logModeDefault: next }).catch(() => {
-      // Persisting the default is a convenience, not a blocking action — the
-      // toggle already reflects the user's choice locally either way.
+    if (!user) return;
+    return onSnapshot(doc(db, "users", user.uid, "plans", "current"), (snap) => {
+      setPlan(snap.exists() ? (snap.data() as PlanDoc) : null);
     });
+  }, [user]);
+
+  const today = toLocalDateKey(new Date());
+  const targetDate = dateParam ?? today;
+
+  // Covers navigation into a different date that doesn't go through
+  // handleDateChange (e.g. a "Log this session" link from SessionDetailPage) —
+  // the confirmation banner shouldn't survive a change of logging target.
+  useEffect(() => {
+    setJustLogged(false);
+    setShowCatalog(false);
+  }, [targetDate]);
+
+  function handleDateChange(next: string) {
+    navigate(next === today ? "/log" : `/log/${next}`);
   }
 
-  async function runRecalculation(logId: string) {
-    setStatus({ phase: "recalculating", logId });
+  async function handleFinishSession(exercises: ExerciseEntry[]) {
+    if (!user || !activeGym || exercises.length === 0) return;
+    const session = plan?.sessions.find((s) => s.date === targetDate);
+    setFinishing(true);
+    setFinishError(null);
     try {
-      await recalculatePlan(logId);
-      setStatus({ phase: "done", logId });
+      await addDoc(collection(db, "users", user.uid, "workoutLogs"), {
+        mode: "detailed" as const,
+        gymId: activeGym.id,
+        date: Timestamp.now(),
+        exercises,
+        createdAt: serverTimestamp(),
+        plannedSessionId: session?.id ?? null,
+      });
+      setJustLogged(true);
+      setLogGeneration((g) => g + 1);
     } catch (err) {
-      const isRateLimit = (err as Partial<AiRateLimitError> | undefined)?.isRateLimit === true;
-      const message =
-        err instanceof Error ? err.message : "Couldn't update your plan. Please try again later.";
-      setStatus({ phase: "error", logId, message, isRateLimit });
+      setFinishError(err instanceof Error ? err.message : "Couldn't save your workout. Please try again.");
+    } finally {
+      setFinishing(false);
     }
   }
 
-  // The workout log write and the plan recalculation are two independent
-  // steps — this is only ever called after the log doc already exists, so a
-  // recalculation failure can never make the log itself look unsaved.
-  function handleWorkoutLogged(logId: string) {
-    void runRecalculation(logId);
+  function handleCatalogLogged() {
+    setJustLogged(true);
+    setShowCatalog(false);
   }
 
   if (!user) return null;
 
+  const showFallback = !activeGym || plan === null;
+  const session = plan?.sessions.find((s) => s.date === targetDate) ?? null;
+
   return (
     <div className="log-page">
-      <div className="log-mode-toggle" role="tablist" aria-label="Logging mode">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={mode === "simple"}
-          className={"log-mode-btn" + (mode === "simple" ? " log-mode-btn-active" : "")}
-          onClick={() => handleModeChange("simple")}
-        >
-          Simple
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={mode === "detailed"}
-          className={"log-mode-btn" + (mode === "detailed" ? " log-mode-btn-active" : "")}
-          onClick={() => handleModeChange("detailed")}
-        >
-          Detailed
-        </button>
+      <div className="log-date-row">
+        <label className="log-date-picker">
+          <span className="log-date-picker-label">Logging for</span>
+          <input
+            type="date"
+            value={targetDate}
+            onChange={(e) => e.target.value && handleDateChange(e.target.value)}
+          />
+        </label>
       </div>
 
-      {status && (
+      {justLogged && (
         <div className="card log-status-card" role="status">
           <p className="log-status-line">Workout logged</p>
-          {status.phase === "recalculating" && (
-            <p className="log-status-sub log-status-muted">
-              <span className="log-spinner" aria-hidden /> Updating your plan for the next 7
-              days...
-            </p>
-          )}
-          {status.phase === "done" && (
-            <p className="log-status-sub log-status-success">Plan updated.</p>
-          )}
-          {status.phase === "error" && (
-            <div className="log-status-sub log-status-error">
-              <p>{status.message}</p>
-              <button
-                type="button"
-                className="btn btn-secondary log-retry-btn"
-                onClick={() => void runRecalculation(status.logId)}
-              >
-                Try again
-              </button>
-            </div>
-          )}
         </div>
       )}
 
-      {mode === "simple" ? (
+      {plan === undefined ? (
+        <div className="card">Loading your plan...</div>
+      ) : showCatalog ? (
+        <CatalogLogView
+          uid={user.uid}
+          activeGym={activeGym}
+          onLogged={handleCatalogLogged}
+          onClose={() => setShowCatalog(false)}
+        />
+      ) : showFallback ? (
         <SimpleLogView
           uid={user.uid}
           gymId={activeGym?.id ?? null}
-          onLogged={handleWorkoutLogged}
+          onLogged={() => setJustLogged(true)}
+        />
+      ) : session ? (
+        <SessionLogList
+          key={`${session.id}-${logGeneration}`}
+          uid={user.uid}
+          gymId={activeGym!.id}
+          session={session}
+          onLogSomethingElse={() => setShowCatalog(true)}
+          onFinish={handleFinishSession}
+          finishing={finishing}
+          finishError={finishError}
         />
       ) : (
-        <DetailedLogView uid={user.uid} activeGym={activeGym} onLogged={handleWorkoutLogged} />
+        <div className="card log-empty-state">
+          <p>No planned session for this date.</p>
+          <button type="button" className="btn btn-secondary" onClick={() => setShowCatalog(true)}>
+            Log something else
+          </button>
+        </div>
       )}
 
       <style>{`
@@ -132,28 +139,23 @@ export default function LogWorkoutPage() {
           gap: var(--space-4);
         }
 
-        .log-mode-toggle {
+        .log-date-row {
           display: flex;
+          justify-content: flex-end;
+        }
+        .log-date-picker {
+          display: flex;
+          align-items: center;
           gap: var(--space-2);
+          font-size: 13px;
+          color: var(--text-muted);
+        }
+        .log-date-picker input {
           background: var(--surface);
           border: 1px solid var(--border);
-          border-radius: var(--radius-md);
-          padding: var(--space-1);
-        }
-        .log-mode-btn {
-          flex: 1;
-          padding: var(--space-2) var(--space-3);
           border-radius: var(--radius-sm);
-          border: none;
-          background: transparent;
-          color: var(--text-muted);
-          font-size: 14px;
-          font-weight: 600;
-          cursor: pointer;
-        }
-        .log-mode-btn-active {
-          background: var(--surface-raised);
           color: var(--text);
+          padding: var(--space-1) var(--space-2);
         }
 
         .log-status-card {
@@ -164,41 +166,6 @@ export default function LogWorkoutPage() {
         .log-status-line {
           font-weight: 600;
           color: var(--success);
-        }
-        .log-status-sub {
-          font-size: 14px;
-          display: flex;
-          align-items: center;
-          gap: var(--space-2);
-        }
-        .log-status-muted {
-          color: var(--text-muted);
-        }
-        .log-status-success {
-          color: var(--success);
-        }
-        .log-status-error {
-          color: var(--danger);
-          flex-direction: column;
-          align-items: flex-start;
-        }
-        .log-retry-btn {
-          padding: var(--space-1) var(--space-3);
-          font-size: 13px;
-        }
-        .log-spinner {
-          width: 14px;
-          height: 14px;
-          border-radius: 50%;
-          border: 2px solid var(--border);
-          border-top-color: var(--accent);
-          animation: log-spin 0.8s linear infinite;
-          flex-shrink: 0;
-        }
-        @keyframes log-spin {
-          to {
-            transform: rotate(360deg);
-          }
         }
 
         .log-category-grid {
@@ -236,18 +203,6 @@ export default function LogWorkoutPage() {
           color: var(--text-muted);
           font-size: 14px;
         }
-        .log-note-label {
-          font-size: 13px;
-          color: var(--text-muted);
-        }
-        .log-note-input {
-          resize: vertical;
-          background: var(--surface-raised);
-          border: 1px solid var(--border);
-          border-radius: var(--radius-sm);
-          color: var(--text);
-          padding: var(--space-2) var(--space-3);
-        }
         .log-confirm-actions {
           display: flex;
           gap: var(--space-2);
@@ -269,6 +224,15 @@ export default function LogWorkoutPage() {
           gap: var(--space-3);
           align-items: flex-start;
         }
+        .log-catalog-back {
+          align-self: flex-start;
+          background: none;
+          border: none;
+          color: var(--text-muted);
+          font-size: 13px;
+          cursor: pointer;
+          padding: 0;
+        }
         .log-search-input {
           background: var(--surface);
           border: 1px solid var(--border);
@@ -282,6 +246,10 @@ export default function LogWorkoutPage() {
           flex-direction: column;
           gap: var(--space-3);
           align-items: flex-start;
+        }
+        .log-status-muted {
+          color: var(--text-muted);
+          font-size: 14px;
         }
 
         .log-session-summary {

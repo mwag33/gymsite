@@ -1,8 +1,9 @@
 export { onUserCreate } from "./onUserCreate";
-export { generateInitialPlan } from "./generateInitialPlan";
-export { generateExercisesForPlan } from "./generateExercisesForPlan";
-export { updateTrainingPlan } from "./updateTrainingPlan";
-export { recalculatePlan } from "./recalculatePlan";
+export { generateSchedule } from "./generateSchedule";
+export { generateExercisesForWeek } from "./generateExercisesForWeek";
+export { updateSession } from "./updateSession";
+export { regeneratePlan } from "./regeneratePlan";
+export { planDailySweep } from "./planDailySweep";
 export { onWorkoutLogWritten } from "./onWorkoutLogWritten";
 export { deleteAccount } from "./deleteAccount";
 export { exportUserData } from "./exportUserData";

@@ -6,9 +6,8 @@ import { functions } from "./firebase";
 import type {
   ExperienceLevel,
   Goal,
-  TrainingPlan,
-  TrainingPlanDay,
-  TrainingPlanFocus,
+  PlanDoc,
+  Session,
   UserSettings,
 } from "./types";
 
@@ -36,7 +35,7 @@ function wrapCallableError(err: unknown): never {
   throw err;
 }
 
-export interface GenerateInitialPlanInput {
+export interface GenerateScheduleInput {
   goal: Goal;
   experience: ExperienceLevel;
   daysPerWeek: number;
@@ -49,14 +48,10 @@ export interface GenerateInitialPlanInput {
   weekStartsOn?: number;
 }
 
-export async function generateInitialPlan(
-  input: GenerateInitialPlanInput
-): Promise<TrainingPlan> {
+/** Generates (or refreshes) the ~28-day schedule. Returns the full plan doc. */
+export async function generateSchedule(input: GenerateScheduleInput): Promise<PlanDoc> {
   try {
-    const call = httpsCallable<GenerateInitialPlanInput, TrainingPlan>(
-      functions,
-      "generateInitialPlan"
-    );
+    const call = httpsCallable<GenerateScheduleInput, PlanDoc>(functions, "generateSchedule");
     const result = await call(input);
     return result.data;
   } catch (err) {
@@ -64,24 +59,27 @@ export async function generateInitialPlan(
   }
 }
 
-export interface GenerateExercisesForPlanInput {
-  days: { dayIndex: number; focus: TrainingPlanFocus; note: string }[];
+export interface GenerateExercisesForWeekInput {
   experience: ExperienceLevel;
   sessionLengthMinutes: number;
   gymId: string | null;
   equipmentNotes?: string;
   injuryNotes?: string;
   preferences?: string;
-  weekStartsOn?: number;
 }
 
-export async function generateExercisesForPlan(
-  input: GenerateExercisesForPlanInput
-): Promise<TrainingPlan> {
+/**
+ * Fills the next unfilled ~7-day slice of exercises starting at the plan's
+ * current `exerciseHorizon` and advances it. No `days` input — the server
+ * reads `users/{uid}/plans/current` itself. Returns the updated plan doc.
+ */
+export async function generateExercisesForWeek(
+  input: GenerateExercisesForWeekInput
+): Promise<PlanDoc> {
   try {
-    const call = httpsCallable<GenerateExercisesForPlanInput, TrainingPlan>(
+    const call = httpsCallable<GenerateExercisesForWeekInput, PlanDoc>(
       functions,
-      "generateExercisesForPlan"
+      "generateExercisesForWeek"
     );
     const result = await call(input);
     return result.data;
@@ -90,21 +88,27 @@ export async function generateExercisesForPlan(
   }
 }
 
-export async function updateTrainingPlan(days: TrainingPlanDay[]): Promise<void> {
-  const call = httpsCallable<{ days: TrainingPlanDay[] }, { success: boolean }>(
-    functions,
-    "updateTrainingPlan"
-  );
-  await call({ days });
+export interface UpdateSessionInput {
+  sessionId: string;
+  patch?: Partial<Pick<Session, "focus" | "note" | "exercises">>;
+  lock?: boolean;
+  unlock?: boolean;
 }
 
-export async function recalculatePlan(logId: string): Promise<TrainingPlan> {
+/** Patches a single session by id (never a whole-week array). */
+export async function updateSession(input: UpdateSessionInput): Promise<void> {
+  const call = httpsCallable<UpdateSessionInput, { success: boolean }>(functions, "updateSession");
+  await call(input);
+}
+
+/**
+ * Explicit/drift-prompted plan regeneration only — there is no more
+ * automatic per-log AI regeneration. Returns the refreshed plan doc.
+ */
+export async function regeneratePlan(): Promise<PlanDoc> {
   try {
-    const call = httpsCallable<{ logId: string }, TrainingPlan>(
-      functions,
-      "recalculatePlan"
-    );
-    const result = await call({ logId });
+    const call = httpsCallable<void, PlanDoc>(functions, "regeneratePlan");
+    const result = await call();
     return result.data;
   } catch (err) {
     wrapCallableError(err);

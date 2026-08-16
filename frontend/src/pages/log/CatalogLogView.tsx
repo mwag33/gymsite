@@ -1,3 +1,7 @@
+// Full catalog search/browse UI, extracted wholesale from the former
+// DetailedLogView (not discarded) for logging something outside the plan.
+// Every entry logged here carries `plannedSessionId: null` — a pure extra,
+// not tied to any scheduled session.
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import {
@@ -21,16 +25,16 @@ import type {
   MachineStats,
   SetEntry,
 } from "../../lib/types";
+import SetEditor from "./SetEditor";
 
-interface DetailedLogViewProps {
+interface CatalogLogViewProps {
   uid: string;
   activeGym: (Gym & { id: string }) | null;
   onLogged: (logId: string) => void;
+  onClose?: () => void;
 }
 
 const DEFAULT_SET: SetEntry = { reps: 10, weightKg: 20 };
-const WEIGHT_STEP = 2.5;
-const REPS_STEP = 1;
 
 const CATEGORY_LABELS: Record<MachineCategory, string> = {
   ...Object.fromEntries(MACHINE_CATEGORIES.map((c) => [c.value, c.label])),
@@ -47,15 +51,7 @@ const CATEGORY_ORDER: MachineCategory[] = [
   "other",
 ];
 
-function roundWeight(n: number): number {
-  return Math.round(n * 10) / 10;
-}
-
-function summarizeSets(sets: SetEntry[]): string {
-  return sets.map((s) => `${s.reps}×${s.weightKg}kg`).join(", ");
-}
-
-export function DetailedLogView({ uid, activeGym, onLogged }: DetailedLogViewProps) {
+export default function CatalogLogView({ uid, activeGym, onLogged, onClose }: CatalogLogViewProps) {
   const [machines, setMachines] = useState<Machine[]>([]);
   const [machinesLoading, setMachinesLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -137,31 +133,6 @@ export function DetailedLogView({ uid, activeGym, onLogged }: DetailedLogViewPro
     setLastStats(null);
   }
 
-  function adjustSet(index: number, field: "weightKg" | "reps", delta: number) {
-    setDraftSets((prev) =>
-      prev.map((s, i) => {
-        if (i !== index) return s;
-        if (field === "weightKg") {
-          return { ...s, weightKg: Math.max(0, roundWeight(s.weightKg + delta)) };
-        }
-        return { ...s, reps: Math.max(1, s.reps + delta) };
-      })
-    );
-  }
-
-  function addSet() {
-    setDraftSets((prev) => [...prev, prev.length > 0 ? { ...prev[prev.length - 1] } : { ...DEFAULT_SET }]);
-  }
-
-  function removeSet(index: number) {
-    setDraftSets((prev) => prev.filter((_, i) => i !== index));
-  }
-
-  function applySameAsLastTime() {
-    if (!lastStats) return;
-    setDraftSets(lastStats.lastSets.map((s) => ({ ...s })));
-  }
-
   function saveExercise() {
     if (!activeMachine || draftSets.length === 0) return;
     const entry: ExerciseEntry = {
@@ -194,6 +165,7 @@ export function DetailedLogView({ uid, activeGym, onLogged }: DetailedLogViewPro
         date: Timestamp.now(),
         exercises: sessionExercises,
         createdAt: serverTimestamp(),
+        plannedSessionId: null,
       });
       setSessionExercises([]);
       onLogged(ref.id);
@@ -218,6 +190,12 @@ export function DetailedLogView({ uid, activeGym, onLogged }: DetailedLogViewPro
 
   return (
     <div className="log-detailed">
+      {onClose && (
+        <button type="button" className="log-catalog-back" onClick={onClose}>
+          &larr; Back to today's session
+        </button>
+      )}
+
       {sessionExercises.length > 0 && (
         <div className="log-session-summary">
           <p className="log-session-summary-title">This workout</p>
@@ -252,81 +230,15 @@ export function DetailedLogView({ uid, activeGym, onLogged }: DetailedLogViewPro
       )}
 
       {activeMachine ? (
-        <div className="card log-set-panel">
-          <div className="log-set-panel-header">
-            <p className="log-set-panel-title">{activeMachine.name}</p>
-            <button
-              type="button"
-              className="log-panel-close"
-              onClick={closePanel}
-              aria-label="Close"
-            >
-              &times;
-            </button>
-          </div>
-
-          {statsLoading && <p className="log-status-muted">Loading last workout...</p>}
-
-          {!statsLoading && lastStats && lastStats.lastSets.length > 0 && (
-            <button
-              type="button"
-              className="btn btn-secondary log-same-as-last-btn"
-              onClick={applySameAsLastTime}
-            >
-              Same as last time ({summarizeSets(lastStats.lastSets)})
-            </button>
-          )}
-
-          <div className="log-set-list">
-            {draftSets.map((set, i) => (
-              <div key={i} className="log-set-row">
-                <span className="log-set-index">Set {i + 1}</span>
-                <div className="log-stepper">
-                  <button type="button" onClick={() => adjustSet(i, "weightKg", -WEIGHT_STEP)}>
-                    &minus;
-                  </button>
-                  <span className="tnum log-stepper-value">{set.weightKg} kg</span>
-                  <button type="button" onClick={() => adjustSet(i, "weightKg", WEIGHT_STEP)}>
-                    +
-                  </button>
-                </div>
-                <div className="log-stepper">
-                  <button type="button" onClick={() => adjustSet(i, "reps", -REPS_STEP)}>
-                    &minus;
-                  </button>
-                  <span className="tnum log-stepper-value">{set.reps} reps</span>
-                  <button type="button" onClick={() => adjustSet(i, "reps", REPS_STEP)}>
-                    +
-                  </button>
-                </div>
-                {draftSets.length > 1 && (
-                  <button
-                    type="button"
-                    className="log-set-remove"
-                    onClick={() => removeSet(i)}
-                    aria-label={`Remove set ${i + 1}`}
-                  >
-                    Remove
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-
-          <button type="button" className="btn btn-secondary log-add-set-btn" onClick={addSet}>
-            + Add set
-          </button>
-
-          {error && <p className="log-error-text">{error}</p>}
-
-          <button
-            type="button"
-            className="btn btn-primary log-save-exercise-btn"
-            onClick={saveExercise}
-          >
-            Save exercise
-          </button>
-        </div>
+        <SetEditor
+          title={activeMachine.name}
+          sets={draftSets}
+          onSetsChange={setDraftSets}
+          lastStats={lastStats}
+          statsLoading={statsLoading}
+          onSave={saveExercise}
+          onClose={closePanel}
+        />
       ) : (
         <>
           <input

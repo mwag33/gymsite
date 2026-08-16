@@ -34,6 +34,10 @@ export const onUserCreate = functionsV1.auth.user().onCreate(async (user) => {
       notificationsEnabled: true,
       activeGymId: null,
       logModeDefault: "simple",
+      // Reasonable server-side default only - only the client knows the
+      // user's actual IANA zone (Intl.DateTimeFormat().resolvedOptions().timeZone),
+      // which should overwrite this via updateUserSettings at onboarding.
+      timezone: "UTC",
     },
     emailVerified: user.emailVerified,
   };

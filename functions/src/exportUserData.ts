@@ -10,7 +10,7 @@ interface ExportedDoc {
 
 // Walks the document tree generically via `listCollections()` rather than
 // hardcoding each subcollection name, so it automatically covers
-// workoutLogs, machineStats (+ its history subcollection), trainingPlans
+// workoutLogs, machineStats (+ its history subcollection), plans
 // (+ history), and meta/aiQuota without needing updates as the schema grows.
 async function exportDocumentTree(ref: DocumentReference): Promise<ExportedDoc> {
   const snap = await ref.get();

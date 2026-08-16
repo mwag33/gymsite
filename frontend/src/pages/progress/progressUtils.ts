@@ -44,3 +44,45 @@ export function formatSessionDate(date: Date): string {
     day: "numeric",
   });
 }
+
+// computeStreak operates on Session[] (see lib/types.ts); imported lazily via
+// a type-only import to avoid a circular dependency with features/plan.
+import type { Session } from "../../lib/types";
+
+/**
+ * Current and best consecutive-training-day streaks, walking backwards from
+ * today. A "done"/"partial" session (any adherence, not a strict match)
+ * counts toward the streak; "rest" focus days and days with no session at
+ * all neither break nor extend it. "skipped"/"swapped" break the streak.
+ * Pure function over the session stream Home already reads — no new
+ * backend-authoritative field needed.
+ */
+export function computeStreak(sessions: Session[]): { current: number; best: number } {
+  const trainingDays = sessions
+    .filter((s) => s.focus !== "rest")
+    .slice()
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  let best = 0;
+  let running = 0;
+
+  const todayKey = (() => {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  })();
+
+  // Walk chronologically; `running` at the end of the loop is the streak
+  // trailing into today, i.e. "current". `best` tracks the max seen.
+  for (const session of trainingDays) {
+    if (session.date > todayKey) continue; // future sessions don't count yet
+    if (session.status === "done" || session.status === "partial") {
+      running += 1;
+      best = Math.max(best, running);
+    } else if (session.status === "skipped" || session.status === "swapped") {
+      running = 0;
+    }
+    // "upcoming" (not yet reached) neither breaks nor extends.
+  }
+
+  return { current: running, best };
+}

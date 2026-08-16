@@ -1,3 +1,5 @@
+// Demoted to a fallback-only view (see LogWorkoutPage): used when there's no
+// active gym or no plan doc yet, so there's nothing session-first to show.
 import { useState } from "react";
 import { addDoc, collection, serverTimestamp, Timestamp } from "firebase/firestore";
 import { db } from "../../lib/firebase";
@@ -32,6 +34,9 @@ export function SimpleLogView({ uid, gymId, onLogged }: SimpleLogViewProps) {
         date: Timestamp.now(),
         bodyParts: [selected],
         createdAt: serverTimestamp(),
+        // This fallback view has no notion of a scheduled session (used only
+        // when there's no active gym or no plan yet — see LogWorkoutPage).
+        plannedSessionId: null,
       });
       setSelected(null);
       onLogged(ref.id);

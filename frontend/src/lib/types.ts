@@ -1,5 +1,4 @@
 // Mirrors the Firestore data model — kept in sync with functions/src/types.ts and firestore.rules.
-// See /Users/moritz.wagner/.claude/plans/you-are-a-senior-warm-duckling.md for the source of truth.
 
 export type Goal =
   | "allround_strength"
@@ -27,6 +26,7 @@ export interface UserSettings {
   notificationsEnabled: boolean;
   activeGymId: string | null;
   logModeDefault: WorkoutMode;
+  timezone: string; // IANA, e.g. "Europe/Berlin"
 }
 
 export interface UserProfile {
@@ -81,6 +81,9 @@ export interface WorkoutLog {
   bodyParts?: MachineCategory[];
   exercises?: ExerciseEntry[];
   createdAt: unknown;
+  // FK to Session.id, set once at creation. Null for a free-form log not tied
+  // to any scheduled session.
+  plannedSessionId: string | null;
 }
 
 export interface MachineStats {
@@ -98,7 +101,7 @@ export interface MachineStatsHistoryEntry {
   sourceLogId: string;
 }
 
-// Matches MachineCategory plus "rest" so a plan day maps directly onto a
+// Matches MachineCategory plus "rest" so a session maps directly onto a
 // simple-mode logging category (see functions/src/gemini.ts).
 export type TrainingPlanFocus = MachineCategory | "rest";
 
@@ -121,7 +124,7 @@ export type MuscleGroup =
   | "cardio";
 
 export interface PlanExercise {
-  id: string; // `${dayIndex}-${index}`, stable for React keys and edits
+  id: string;
   name: string;
   sets: number;
   reps: string; // prescriptive, e.g. "8-12" or "30s" - not a logged rep count
@@ -130,27 +133,35 @@ export interface PlanExercise {
   note?: string;
 }
 
-export interface TrainingPlanDay {
-  dayIndex: number; // 0-6
+export type SessionStatus = "upcoming" | "done" | "partial" | "skipped" | "swapped";
+export type SessionSource = "ai_schedule" | "ai_exercises" | "deterministic_reschedule" | "manual_edit";
+
+export interface Session {
+  id: string; // stable id, survives reschedules - the FK target for WorkoutLog.plannedSessionId
+  date: string; // "YYYY-MM-DD", user-local calendar date
   focus: TrainingPlanFocus;
   note: string;
-  // Absent on plan docs generated before exercises existed - always read via
-  // `day.exercises ?? []`, never assume this is present.
-  exercises?: PlanExercise[];
+  // null = outside the exercise horizon, [] = rest day, non-empty = ready to log
+  exercises: PlanExercise[] | null;
+  status: SessionStatus;
+  locked: boolean; // manual per-session lock, set via updateSession
+  source: SessionSource;
+  loggedAt?: unknown | null;
+  swappedFocus?: TrainingPlanFocus | null;
+  rescheduledFromSessionId?: string | null;
 }
 
-export interface TrainingPlan {
-  generatedAt: unknown;
-  basedOnLogId: string | null;
-  weekStart: unknown;
+export interface PlanDoc {
+  planId: string;
+  timezone: string;
+  scheduleGeneratedAt: unknown;
+  scheduleModelVersion: string;
+  exercisesModelVersion: string | null;
   frequencyPerWeek: number;
-  days: TrainingPlanDay[];
-  modelVersion: string;
-  // Absent on plan docs generated before exercises existed - always read via
-  // `plan.exercisesLocked ?? false`, never assume these are present.
-  exercisesGeneratedAt?: unknown | null;
-  exercisesLocked?: boolean;
-  editedAt?: unknown | null;
+  exerciseHorizon: string; // "YYYY-MM-DD"
+  needsScheduleRefresh: boolean;
+  sessions: Session[];
+  lastSweepAt: unknown;
 }
 
 export const MACHINE_CATEGORIES: { value: MachineCategory; label: string }[] = [

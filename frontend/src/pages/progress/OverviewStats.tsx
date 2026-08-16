@@ -13,9 +13,10 @@ import {
 import type { NameType, ValueType } from "recharts/types/component/DefaultTooltipContent";
 import { db } from "../../lib/firebase";
 import { useAuth } from "../../contexts/AuthContext";
-import type { Machine, MachineCategory, TrainingPlan, WorkoutLog } from "../../lib/types";
+import type { Machine, MachineCategory, PlanDoc, WorkoutLog } from "../../lib/types";
 import { MACHINE_CATEGORIES } from "../../lib/types";
-import { addDays, startOfWeek, toDate } from "./progressUtils";
+import AdherenceMeter from "../../components/AdherenceMeter";
+import { addDays, computeStreak, startOfWeek, toDate } from "./progressUtils";
 
 // Bound how far back we scan workoutLogs for the category breakdown — recent
 // training pattern, not a full-history analytics engine.
@@ -41,7 +42,7 @@ function ChartTooltip({ active, payload }: TooltipContentProps<ValueType, NameTy
 
 export default function OverviewStats() {
   const { user, profile } = useAuth();
-  const [plan, setPlan] = useState<TrainingPlan | null | undefined>(undefined);
+  const [plan, setPlan] = useState<PlanDoc | null | undefined>(undefined);
   const [logs, setLogs] = useState<WorkoutLog[] | null>(null);
   const [categoryCache, setCategoryCache] = useState<Record<string, MachineCategory>>({});
   const requestedCategories = useRef<Set<string>>(new Set());
@@ -50,8 +51,8 @@ export default function OverviewStats() {
 
   useEffect(() => {
     if (!user) return;
-    return onSnapshot(doc(db, "users", user.uid, "trainingPlans", "current"), (snap) => {
-      setPlan(snap.exists() ? (snap.data() as TrainingPlan) : null);
+    return onSnapshot(doc(db, "users", user.uid, "plans", "current"), (snap) => {
+      setPlan(snap.exists() ? (snap.data() as PlanDoc) : null);
     });
   }, [user]);
 
@@ -124,11 +125,12 @@ export default function OverviewStats() {
 
   const frequencyPerWeek = plan?.frequencyPerWeek ?? null;
   const weekTarget = frequencyPerWeek ?? null;
-  const weekRatio = weekTarget ? Math.min(1, sessionsThisWeek / weekTarget) : 0;
   const fourWeekTarget = frequencyPerWeek ? frequencyPerWeek * 4 : null;
   const fourWeekAdherencePct = fourWeekTarget
     ? Math.round((sessionsTrailing4Weeks / fourWeekTarget) * 100)
     : null;
+
+  const streak = useMemo(() => computeStreak(plan?.sessions ?? []), [plan]);
 
   const categoryData: CategoryPoint[] = useMemo(() => {
     const counts: Record<MachineCategory, number> = {
@@ -169,20 +171,7 @@ export default function OverviewStats() {
     <div className="overview-stats">
       <div className="card overview-adherence">
         <h3>This week</h3>
-        {weekTarget ? (
-          <>
-            <div className="overview-adherence-figure tnum">
-              {sessionsThisWeek} <span>of {weekTarget} sessions</span>
-            </div>
-            <div className="overview-meter" role="progressbar" aria-valuenow={sessionsThisWeek} aria-valuemin={0} aria-valuemax={weekTarget}>
-              <div className="overview-meter-fill" style={{ width: `${weekRatio * 100}%` }} />
-            </div>
-          </>
-        ) : (
-          <div className="overview-adherence-figure tnum">
-            {sessionsThisWeek} <span>session{sessionsThisWeek === 1 ? "" : "s"} logged</span>
-          </div>
-        )}
+        <AdherenceMeter completed={sessionsThisWeek} target={weekTarget} />
         {!hasAnyLogs && (
           <p className="progress-empty-sub">Log your first workout to see progress here.</p>
         )}
@@ -194,6 +183,20 @@ export default function OverviewStats() {
         {plan === null && (
           <p className="overview-adherence-sub">No active plan yet — adherence targets will appear once one is generated.</p>
         )}
+      </div>
+
+      <div className="card overview-streak">
+        <h3>Streak</h3>
+        <div className="overview-streak-figures">
+          <div className="overview-streak-figure">
+            <span className="overview-streak-value tnum">{streak.current}</span>
+            <span className="overview-streak-label">Current</span>
+          </div>
+          <div className="overview-streak-figure">
+            <span className="overview-streak-value tnum">{streak.best}</span>
+            <span className="overview-streak-label">Best</span>
+          </div>
+        </div>
       </div>
 
       <div className="card overview-categories">
@@ -228,38 +231,36 @@ export default function OverviewStats() {
           gap: var(--space-4);
         }
         .overview-adherence,
+        .overview-streak,
         .overview-categories {
           display: flex;
           flex-direction: column;
           gap: var(--space-2);
         }
         .overview-adherence h3,
+        .overview-streak h3,
         .overview-categories h3 {
           font-size: 15px;
         }
-        .overview-adherence-figure {
-          font-size: 24px;
-          font-weight: 700;
-        }
-        .overview-adherence-figure span {
-          font-size: 14px;
-          font-weight: 500;
+        .overview-adherence-sub {
+          font-size: 13px;
           color: var(--text-muted);
         }
-        .overview-meter {
-          height: 8px;
-          border-radius: 4px;
-          background: var(--surface-raised);
-          border: 1px solid var(--border);
-          overflow: hidden;
+        .overview-streak-figures {
+          display: flex;
+          gap: var(--space-5);
         }
-        .overview-meter-fill {
-          height: 100%;
-          background: var(--accent);
-          border-radius: 4px;
-          transition: width 0.2s ease;
+        .overview-streak-figure {
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
         }
-        .overview-adherence-sub {
+        .overview-streak-value {
+          font-size: 24px;
+          font-weight: 700;
+          color: var(--accent);
+        }
+        .overview-streak-label {
           font-size: 13px;
           color: var(--text-muted);
         }

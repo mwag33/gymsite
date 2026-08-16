@@ -14,8 +14,8 @@ export const FOCUS_LABELS: Record<TrainingPlanFocus, string> = {
 };
 
 // Excludes "other" - the AI/schema/validation stack only ever uses these 7
-// values for a plan day's focus (see functions/src/gemini.ts FOCUS_ENUM and
-// functions/src/updateTrainingPlan.ts FOCUS_VALUES).
+// values for a session's focus (see functions/src/gemini.ts FOCUS_ENUM and
+// functions/src/updateSession.ts FOCUS_VALUES).
 export const EDITABLE_FOCUS_OPTIONS: TrainingPlanFocus[] = [
   "rest",
   "chest",

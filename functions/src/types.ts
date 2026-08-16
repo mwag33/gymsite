@@ -33,10 +33,13 @@ export interface UserDoc {
   emailVerified: boolean;
 }
 
+// No dailyLimit field here on purpose: the cap is a code constant
+// (functions/src/quota.ts's DEFAULT_DAILY_LIMIT), not a per-user stored
+// value, so changing it takes effect for every user immediately rather than
+// only for quota docs created after the change.
 export interface AiQuotaDoc {
   dailyCount: number;
   windowStartedAt: Timestamp;
-  dailyLimit: number;
 }
 
 export interface GymDoc {

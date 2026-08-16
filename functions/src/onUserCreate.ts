@@ -45,7 +45,6 @@ export const onUserCreate = functionsV1.auth.user().onCreate(async (user) => {
   const quotaDoc: AiQuotaDoc = {
     dailyCount: 0,
     windowStartedAt: now,
-    dailyLimit: 5,
   };
 
   const batch = db.batch();

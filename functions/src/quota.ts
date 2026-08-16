@@ -4,7 +4,14 @@ import { db } from "./admin";
 import type { AiQuotaDoc } from "./types";
 
 const WINDOW_MS = 24 * 60 * 60 * 1000;
-const DEFAULT_DAILY_LIMIT = 5;
+// The plan-redesign's quota model (see functions/src/regeneratePlan.ts and
+// the architecture plan doc) only needs ~1 call/week under realistic usage,
+// so 5/day was originally sized as a generous ceiling - but during active
+// use/testing, onboarding alone spends 2 (schedule + first exercise fill),
+// and a couple of retries burns through 5 fast. Raised for headroom; the
+// billing circuit breaker (functions/src/billingCircuitBreaker.ts) remains
+// the real cost safety net, not this per-user counter.
+const DEFAULT_DAILY_LIMIT = 20;
 
 /**
  * Atomically checks and consumes one unit of a user's daily AI quota.
@@ -27,14 +34,14 @@ export async function checkAndConsumeAiQuota(uid: string): Promise<void> {
 
     let data: AiQuotaDoc = snap.exists
       ? (snap.data() as AiQuotaDoc)
-      : { dailyCount: 0, windowStartedAt: now, dailyLimit: DEFAULT_DAILY_LIMIT };
+      : { dailyCount: 0, windowStartedAt: now };
 
     const elapsedMs = now.toMillis() - data.windowStartedAt.toMillis();
     if (elapsedMs > WINDOW_MS) {
       data = { ...data, dailyCount: 0, windowStartedAt: now };
     }
 
-    if (data.dailyCount >= data.dailyLimit) {
+    if (data.dailyCount >= DEFAULT_DAILY_LIMIT) {
       const remainingMs = WINDOW_MS - (now.toMillis() - data.windowStartedAt.toMillis());
       const minutesRemaining = Math.ceil(remainingMs / 60000);
       throw new HttpsError(
@@ -46,7 +53,6 @@ export async function checkAndConsumeAiQuota(uid: string): Promise<void> {
     const next: AiQuotaDoc = {
       dailyCount: data.dailyCount + 1,
       windowStartedAt: data.windowStartedAt,
-      dailyLimit: data.dailyLimit,
     };
     tx.set(ref, next);
   });

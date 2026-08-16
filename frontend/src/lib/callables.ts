@@ -88,6 +88,32 @@ export async function generateExercisesForWeek(
   }
 }
 
+export interface RegenerateSessionExercisesInput {
+  sessionId: string;
+  experience: ExperienceLevel;
+  sessionLengthMinutes: number;
+  gymId: string | null;
+  equipmentNotes?: string;
+  injuryNotes?: string;
+  preferences?: string;
+}
+
+/** Regenerates exercises for exactly one session (e.g. after a manual focus swap). */
+export async function regenerateSessionExercises(
+  input: RegenerateSessionExercisesInput
+): Promise<PlanDoc> {
+  try {
+    const call = httpsCallable<RegenerateSessionExercisesInput, PlanDoc>(
+      functions,
+      "regenerateSessionExercises"
+    );
+    const result = await call(input);
+    return result.data;
+  } catch (err) {
+    wrapCallableError(err);
+  }
+}
+
 export interface UpdateSessionInput {
   sessionId: string;
   patch?: Partial<Pick<Session, "focus" | "note" | "exercises">>;
@@ -134,4 +160,10 @@ export async function updateUserSettings(
     "updateUserSettings"
   );
   await call({ settings: partialSettings });
+}
+
+/** Adds a gym to the signed-in user's `homeGymIds` list (add-only, arrayUnion). */
+export async function addHomeGym(gymId: string): Promise<void> {
+  const call = httpsCallable<{ gymId: string }, { success: boolean }>(functions, "addHomeGym");
+  await call({ gymId });
 }

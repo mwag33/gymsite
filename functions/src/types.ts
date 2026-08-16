@@ -28,6 +28,11 @@ export interface UserDoc {
   createdAt: Timestamp;
   goal: string | null;
   goalUpdatedAt: Timestamp | null;
+  experienceLevel: string | null;
+  daysPerWeek: number | null;
+  sessionLengthMinutes: number | null;
+  equipmentNotes: string | null;
+  injuryNotes: string | null;
   homeGymIds: string[];
   settings: UserSettings;
   emailVerified: boolean;

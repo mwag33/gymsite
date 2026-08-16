@@ -4,13 +4,15 @@ import { collection, doc, onSnapshot, query, where } from "firebase/firestore";
 import { db } from "../../lib/firebase";
 import { useAuth } from "../../contexts/AuthContext";
 import { useActiveGym } from "../../contexts/ActiveGymContext";
-import type { Machine, PlanDoc, Session, WorkoutLog } from "../../lib/types";
+import type { Machine, PlanDoc, Session, TrainingPlanFocus, WorkoutLog } from "../../lib/types";
 import { weekdayLabel } from "../../features/plan/planDate";
-import { FOCUS_LABELS } from "../../features/plan/planFocus";
+import { EDITABLE_FOCUS_OPTIONS, FOCUS_LABELS } from "../../features/plan/planFocus";
+import { FocusIcon } from "../../features/plan/focusIcons";
 import AdjustmentBanner from "../../features/plan/AdjustmentBanner";
 import SessionExerciseRow from "../../features/plan/SessionExerciseRow";
 import SessionEditor from "../../features/plan/SessionEditor";
 import { resolveSessionCompletion } from "../../features/plan/sessionCompletion";
+import { updateSession, regenerateSessionExercises } from "../../lib/callables";
 
 const STATUS_LABELS: Record<Session["status"], string> = {
   upcoming: "Upcoming",
@@ -21,7 +23,7 @@ const STATUS_LABELS: Record<Session["status"], string> = {
 };
 
 export default function SessionDetailPage() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const { activeGym } = useActiveGym();
   const navigate = useNavigate();
   const { date } = useParams<{ date: string }>();
@@ -30,6 +32,11 @@ export default function SessionDetailPage() {
   const [logs, setLogs] = useState<WorkoutLog[]>([]);
   const [machines, setMachines] = useState<Machine[]>([]);
   const [editing, setEditing] = useState(false);
+  const [swapping, setSwapping] = useState(false);
+  const [savingFocus, setSavingFocus] = useState(false);
+  const [swapError, setSwapError] = useState<string | null>(null);
+  const [regenerating, setRegenerating] = useState(false);
+  const [regenError, setRegenError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -91,6 +98,55 @@ export default function SessionDetailPage() {
 
   const exercises = session.exercises ?? [];
   const completion = resolveSessionCompletion(exercises, logs, machines);
+
+  // A swap patches `focus` alone (see handleSwapFocus) and deliberately
+  // leaves the old exercises in place rather than clearing them - so an
+  // exercise's machineCategory (set from the session's focus at generation
+  // time, see functions/src/generateExercisesForWeek.ts) no longer matching
+  // the day's current focus is exactly the signal that regeneration is due.
+  const hasStaleExercises =
+    exercises.length > 0 && exercises.some((ex) => ex.machineCategory !== session.focus);
+
+  async function handleSwapFocus(newFocus: TrainingPlanFocus) {
+    if (newFocus === session!.focus || savingFocus) return;
+    setSavingFocus(true);
+    setSwapError(null);
+    try {
+      await updateSession({
+        sessionId: session!.id,
+        // Rest days deliberately carry `[]` (nothing to log), never `null`
+        // ("not yet generated") - swapping onto rest applies that sentinel
+        // directly instead of leaving stale exercises behind.
+        patch: newFocus === "rest" ? { focus: newFocus, exercises: [] } : { focus: newFocus },
+      });
+      setSwapping(false);
+    } catch (err) {
+      setSwapError(err instanceof Error ? err.message : "Couldn't change this day's type.");
+    } finally {
+      setSavingFocus(false);
+    }
+  }
+
+  async function handleRegenerate() {
+    if (regenerating) return;
+    setRegenerating(true);
+    setRegenError(null);
+    try {
+      await regenerateSessionExercises({
+        sessionId: session!.id,
+        experience: profile?.experienceLevel ?? "some_experience",
+        sessionLengthMinutes: profile?.sessionLengthMinutes ?? 45,
+        gymId: activeGym?.id ?? null,
+        equipmentNotes: profile?.equipmentNotes ?? undefined,
+        injuryNotes: profile?.injuryNotes ?? undefined,
+      });
+    } catch (err) {
+      setRegenError(err instanceof Error ? err.message : "Couldn't regenerate exercises. Please try again.");
+    } finally {
+      setRegenerating(false);
+    }
+  }
+
   // AdjustmentBanner already renders `note` verbatim as the reschedule
   // reason for an adjusted session — don't render it a second time here.
   const isAdjusted = session.source === "deterministic_reschedule" || Boolean(session.rescheduledFromSessionId);
@@ -100,12 +156,56 @@ export default function SessionDetailPage() {
       <div className="session-detail-header">
         <div>
           <p className="session-detail-date">{weekdayLabel(session.date)}</p>
-          <h1 className="session-detail-focus">{FOCUS_LABELS[session.focus]}</h1>
+          <button
+            type="button"
+            className="session-detail-focus-btn"
+            onClick={() => setSwapping((v) => !v)}
+          >
+            <FocusIcon focus={session.focus} width={20} height={20} />
+            <h1 className="session-detail-focus">{FOCUS_LABELS[session.focus]}</h1>
+            <span className="session-detail-focus-edit">{swapping ? "Cancel" : "Change"}</span>
+          </button>
         </div>
         <span className={`session-detail-badge session-detail-badge-${session.status}`}>
           {STATUS_LABELS[session.status]}
         </span>
       </div>
+
+      {swapping && (
+        <div className="session-detail-swap" role="list">
+          {EDITABLE_FOCUS_OPTIONS.map((focus) => (
+            <button
+              key={focus}
+              type="button"
+              role="listitem"
+              className={
+                "session-detail-swap-chip" + (focus === session.focus ? " session-detail-swap-chip-active" : "")
+              }
+              disabled={savingFocus}
+              onClick={() => void handleSwapFocus(focus)}
+            >
+              <FocusIcon focus={focus} width={14} height={14} />
+              {FOCUS_LABELS[focus]}
+            </button>
+          ))}
+        </div>
+      )}
+      {swapError && <p className="session-detail-error">{swapError}</p>}
+
+      {hasStaleExercises && (
+        <div className="session-detail-stale">
+          <p>Exercises below are for the old focus.</p>
+          <button
+            type="button"
+            className="btn btn-secondary session-detail-regen-btn"
+            disabled={regenerating}
+            onClick={() => void handleRegenerate()}
+          >
+            {regenerating ? "Regenerating…" : "Regenerate exercises"}
+          </button>
+          {regenError && <p className="session-detail-error">{regenError}</p>}
+        </div>
+      )}
 
       <AdjustmentBanner session={session} />
 
@@ -159,6 +259,67 @@ export default function SessionDetailPage() {
         }
         .session-detail-focus {
           font-size: 22px;
+        }
+        .session-detail-focus-btn {
+          display: inline-flex;
+          align-items: center;
+          gap: var(--space-2);
+          background: none;
+          border: none;
+          padding: 0;
+          color: var(--text);
+          cursor: pointer;
+        }
+        .session-detail-focus-edit {
+          font-size: 12px;
+          font-weight: 600;
+          color: var(--accent);
+        }
+        .session-detail-swap {
+          display: flex;
+          flex-wrap: wrap;
+          gap: var(--space-2);
+        }
+        .session-detail-swap-chip {
+          display: inline-flex;
+          align-items: center;
+          gap: var(--space-1);
+          padding: var(--space-2) var(--space-3);
+          border-radius: 999px;
+          border: 1px solid var(--border);
+          background: var(--surface);
+          color: var(--text);
+          font-size: 13px;
+          font-weight: 600;
+          cursor: pointer;
+        }
+        .session-detail-swap-chip-active {
+          border-color: var(--accent);
+          background: var(--accent-surface);
+          color: var(--accent);
+        }
+        .session-detail-swap-chip:disabled {
+          opacity: 0.6;
+          cursor: default;
+        }
+        .session-detail-error {
+          color: var(--danger);
+          font-size: 13px;
+        }
+        .session-detail-stale {
+          display: flex;
+          flex-direction: column;
+          align-items: flex-start;
+          gap: var(--space-2);
+          padding: var(--space-3);
+          background: var(--surface-raised);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-md);
+          font-size: 13px;
+          color: var(--text-muted);
+        }
+        .session-detail-regen-btn {
+          font-size: 13px;
         }
         .session-detail-badge {
           flex-shrink: 0;

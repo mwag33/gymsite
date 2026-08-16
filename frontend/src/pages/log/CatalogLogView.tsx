@@ -25,6 +25,7 @@ import type {
   MachineStats,
   SetEntry,
 } from "../../lib/types";
+import { createMachine } from "../../lib/createMachine";
 import SetEditor from "./SetEditor";
 
 interface CatalogLogViewProps {
@@ -35,21 +36,6 @@ interface CatalogLogViewProps {
 }
 
 const DEFAULT_SET: SetEntry = { reps: 10, weightKg: 20 };
-
-const CATEGORY_LABELS: Record<MachineCategory, string> = {
-  ...Object.fromEntries(MACHINE_CATEGORIES.map((c) => [c.value, c.label])),
-  other: "Other",
-} as Record<MachineCategory, string>;
-
-const CATEGORY_ORDER: MachineCategory[] = [
-  "chest",
-  "back",
-  "upper_body",
-  "core",
-  "legs",
-  "cardio",
-  "other",
-];
 
 export default function CatalogLogView({ uid, activeGym, onLogged, onClose }: CatalogLogViewProps) {
   const [machines, setMachines] = useState<Machine[]>([]);
@@ -64,6 +50,12 @@ export default function CatalogLogView({ uid, activeGym, onLogged, onClose }: Ca
 
   const [finishing, setFinishing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const [newMachineCategory, setNewMachineCategory] = useState<MachineCategory>(
+    MACHINE_CATEGORIES[0].value
+  );
+  const [creatingMachine, setCreatingMachine] = useState(false);
+  const [createError, setCreateError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!activeGym) {
@@ -178,14 +170,41 @@ export default function CatalogLogView({ uid, activeGym, onLogged, onClose }: Ca
     }
   }
 
+  const trimmedSearch = search.trim();
   const filteredMachines = machines.filter((m) =>
-    m.name.toLowerCase().includes(search.trim().toLowerCase())
+    m.name.toLowerCase().includes(trimmedSearch.toLowerCase())
   );
   const grouped = new Map<MachineCategory, Machine[]>();
   for (const m of filteredMachines) {
     const list = grouped.get(m.category) ?? [];
     list.push(m);
     grouped.set(m.category, list);
+  }
+  const hasExactMatch = machines.some(
+    (m) => m.name.trim().toLowerCase() === trimmedSearch.toLowerCase()
+  );
+
+  async function handleCreateMachine() {
+    if (!trimmedSearch || creatingMachine) return;
+    setCreatingMachine(true);
+    setCreateError(null);
+    try {
+      const id = await createMachine(gymId, uid, trimmedSearch, newMachineCategory);
+      const newMachine: Machine = {
+        id,
+        name: trimmedSearch,
+        category: newMachineCategory,
+        addedBy: uid,
+        createdAt: null,
+        archived: false,
+      };
+      setSearch("");
+      await openMachine(newMachine);
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : "Couldn't add that machine. Please try again.");
+    } finally {
+      setCreatingMachine(false);
+    }
   }
 
   return (
@@ -262,12 +281,12 @@ export default function CatalogLogView({ uid, activeGym, onLogged, onClose }: Ca
 
           {!machinesLoading &&
             machines.length > 0 &&
-            CATEGORY_ORDER.map((cat) => {
-              const list = grouped.get(cat);
+            MACHINE_CATEGORIES.map((c) => {
+              const list = grouped.get(c.value);
               if (!list || list.length === 0) return null;
               return (
-                <div key={cat} className="log-machine-group">
-                  <p className="log-machine-group-title">{CATEGORY_LABELS[cat]}</p>
+                <div key={c.value} className="log-machine-group">
+                  <p className="log-machine-group-title">{c.label}</p>
                   <div className="log-machine-list">
                     {list.map((m) => (
                       <button
@@ -286,6 +305,35 @@ export default function CatalogLogView({ uid, activeGym, onLogged, onClose }: Ca
                 </div>
               );
             })}
+
+          {!machinesLoading && trimmedSearch && !hasExactMatch && (
+            <div className="machine-picker-create">
+              <p className="log-machine-group-title">Not listed?</p>
+              <div className="machine-picker-create-row">
+                <select
+                  className="log-search-input machine-picker-select"
+                  value={newMachineCategory}
+                  aria-label="New machine category"
+                  onChange={(e) => setNewMachineCategory(e.target.value as MachineCategory)}
+                >
+                  {MACHINE_CATEGORIES.map((c) => (
+                    <option key={c.value} value={c.value}>
+                      {c.label}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  disabled={creatingMachine}
+                  onClick={() => void handleCreateMachine()}
+                >
+                  {creatingMachine ? "Adding..." : `Add "${trimmedSearch}"`}
+                </button>
+              </div>
+              {createError && <p className="log-error-text">{createError}</p>}
+            </div>
+          )}
 
           {error && <p className="log-error-text">{error}</p>}
 

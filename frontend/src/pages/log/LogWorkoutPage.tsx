@@ -326,6 +326,31 @@ export default function LogWorkoutPage() {
           color: var(--accent);
         }
 
+        .machine-picker {
+          display: flex;
+          flex-direction: column;
+          gap: var(--space-3);
+        }
+        .machine-picker-row-main {
+          display: flex;
+          align-items: center;
+          gap: var(--space-2);
+        }
+        .machine-picker-create {
+          display: flex;
+          flex-direction: column;
+          gap: var(--space-2);
+          padding-top: var(--space-2);
+          border-top: 1px solid var(--border);
+        }
+        .machine-picker-create-row {
+          display: flex;
+          gap: var(--space-2);
+        }
+        .machine-picker-select {
+          flex: 1;
+        }
+
         .log-set-panel {
           display: flex;
           flex-direction: column;

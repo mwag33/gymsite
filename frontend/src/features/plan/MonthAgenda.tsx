@@ -1,9 +1,12 @@
-// Compact numerals-only calendar grid for peeking further into the rolling
-// month. Aligned to real weekdays (padded with blank leading/trailing
+// Compact calendar grid for peeking further into the rolling month: each
+// cell pairs the date number with a small FocusIcon (training-type glyph),
+// matching the icon treatment DateStrip/UpcomingList already use for the
+// weekly view. Aligned to real weekdays (padded with blank leading/trailing
 // cells), colored per session status, click navigates to /session/:date.
 import { useNavigate } from "react-router-dom";
 import type { Session, SessionStatus } from "../../lib/types";
 import { parseLocalDateKey } from "./planDate";
+import { FocusIcon } from "./focusIcons";
 
 interface MonthAgendaProps {
   sessions: Session[];
@@ -67,7 +70,8 @@ export default function MonthAgenda({ sessions, today, weekStartsOn = 1, onClose
               }
               onClick={() => navigate(`/session/${session.date}`)}
             >
-              {parseLocalDateKey(session.date).getDate()}
+              <span className="month-agenda-cell-num tnum">{parseLocalDateKey(session.date).getDate()}</span>
+              {!isRest && <FocusIcon focus={session.focus} width={12} height={12} className="month-agenda-cell-icon" />}
             </button>
           );
         })}
@@ -104,14 +108,21 @@ export default function MonthAgenda({ sessions, today, weekStartsOn = 1, onClose
         .month-agenda-cell {
           aspect-ratio: 1;
           display: flex;
+          flex-direction: column;
           align-items: center;
           justify-content: center;
+          gap: 2px;
           border-radius: var(--radius-sm);
           border: 1px solid var(--border);
           background: var(--surface-raised);
           color: var(--text-muted);
-          font-size: 12px;
           cursor: pointer;
+        }
+        .month-agenda-cell-num {
+          font-size: 11px;
+        }
+        .month-agenda-cell-icon {
+          opacity: 0.85;
         }
         .month-agenda-cell-empty {
           border-color: transparent;

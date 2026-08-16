@@ -129,9 +129,23 @@ export default function ProfilePage() {
           <dd>{profile.daysPerWeek ? `${profile.daysPerWeek}x per week` : "Not set"}</dd>
           <dt className="profile-muted">Session length</dt>
           <dd>{profile.sessionLengthMinutes ? `${profile.sessionLengthMinutes} min` : "Not set"}</dd>
+          {profile.equipmentNotes && (
+            <>
+              <dt className="profile-muted">Equipment</dt>
+              <dd>{profile.equipmentNotes}</dd>
+            </>
+          )}
+          {profile.injuryNotes && (
+            <>
+              <dt className="profile-muted">Injuries &amp; limitations</dt>
+              <dd>{profile.injuryNotes}</dd>
+            </>
+          )}
         </dl>
         <p className="profile-muted profile-hint">
-          Your goal drives the whole plan, so changing it means going through onboarding again.
+          {profile.experienceLevel
+            ? "Your goal drives the whole plan, so changing it means going through onboarding again."
+            : "We're missing some of your training details. Retake onboarding to fill them in."}
         </p>
         <button
           type="button"

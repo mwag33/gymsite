@@ -209,6 +209,11 @@ export const generateSchedule = onCall<GenerateScheduleRequest>(
       goal: input.goal,
       goalUpdatedAt: now,
       settings: settingsUpdate,
+      experienceLevel: input.experience,
+      daysPerWeek: input.daysPerWeek,
+      sessionLengthMinutes: input.sessionLengthMinutes,
+      equipmentNotes: input.equipmentNotes ?? null,
+      injuryNotes: input.injuryNotes ?? null,
     };
     if (input.gymId) {
       userUpdate.homeGymIds = FieldValue.arrayUnion(input.gymId);

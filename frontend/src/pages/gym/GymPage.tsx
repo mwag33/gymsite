@@ -4,6 +4,7 @@ import {
   addDoc,
   collection,
   doc,
+  documentId,
   getDocs,
   increment,
   limit,
@@ -24,6 +25,9 @@ import {
   type MachineCategory,
 } from "../../lib/types";
 import { MACHINE_CATALOG, findCatalogMachine } from "../../lib/machineCatalog";
+import { createMachine } from "../../lib/createMachine";
+import { addHomeGym } from "../../lib/callables";
+import { FocusIcon } from "../../features/plan/focusIcons";
 import MachineIcon from "../../components/MachineIcon";
 import MuscleDiagram from "../../components/MuscleDiagram";
 
@@ -36,8 +40,45 @@ function formatLocation(location: Gym["location"]): string {
 }
 
 export default function GymPage() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const { activeGym, loading: activeGymLoading, setActiveGymId } = useActiveGym();
+
+  // ---------- Your gyms (homeGymIds quick-switch row) ----------
+  const homeGymIds = useMemo(() => profile?.homeGymIds ?? [], [profile?.homeGymIds]);
+  const [homeGyms, setHomeGyms] = useState<GymDoc[] | null>(null);
+  const [backfilled, setBackfilled] = useState(false);
+
+  useEffect(() => {
+    if (homeGymIds.length === 0) {
+      setHomeGyms([]);
+      return;
+    }
+    // documentId() "in" queries cap at 30 ids - homeGymIds realistically
+    // never approaches that, so no pagination/chunking is needed here.
+    let cancelled = false;
+    getDocs(query(collection(db, "gyms"), where(documentId(), "in", homeGymIds.slice(0, 30))))
+      .then((snap) => {
+        if (cancelled) return;
+        const byId = new Map(snap.docs.map((d) => [d.id, { id: d.id, ...(d.data() as Omit<Gym, "id">) }]));
+        // Preserve homeGymIds order (roughly most-recently-added-last) rather
+        // than whatever order the query happens to return.
+        setHomeGyms(homeGymIds.map((id) => byId.get(id)).filter((g): g is GymDoc => Boolean(g)));
+      })
+      .catch(() => setHomeGyms([]));
+    return () => {
+      cancelled = true;
+    };
+  }, [homeGymIds]);
+
+  // One-time backfill for pre-existing users: before this feature shipped,
+  // switching/creating a gym never saved it into homeGymIds, so anyone who
+  // already set up a gym would otherwise see an empty "Your gyms" row.
+  useEffect(() => {
+    if (backfilled || activeGymLoading || !activeGym) return;
+    if (homeGymIds.length > 0) return;
+    setBackfilled(true);
+    void addHomeGym(activeGym.id);
+  }, [backfilled, activeGymLoading, activeGym, homeGymIds.length]);
 
   // ---------- Gym search / switch / create ----------
   const [switchRequested, setSwitchRequested] = useState(false);
@@ -85,6 +126,7 @@ export default function GymPage() {
     setSwitchError(null);
     try {
       await setActiveGymId(gymId);
+      await addHomeGym(gymId);
       // v1 approximation: bump memberCount on every activation rather than
       // tracking exact-once membership per user (out of scope for now).
       await updateDoc(doc(db, "gyms", gymId), { memberCount: increment(1) });
@@ -115,6 +157,7 @@ export default function GymPage() {
         location,
       });
       await setActiveGymId(gymRef.id);
+      await addHomeGym(gymRef.id);
       await updateDoc(gymRef, { memberCount: increment(1) });
       setShowAddGymForm(false);
       setSwitchRequested(false);
@@ -133,6 +176,7 @@ export default function GymPage() {
   // ---------- Machines for the active gym ----------
   const [machines, setMachines] = useState<MachineDoc[] | null>(null);
   const [machineQuery, setMachineQuery] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState<MachineCategory | null>(null);
 
   const [showAddMachineForm, setShowAddMachineForm] = useState(false);
   const [newMachineName, setNewMachineName] = useState("");
@@ -152,6 +196,7 @@ export default function GymPage() {
     }
     setMachines(null); // show loading state while the new gym's machines load
     setMachinesError(null);
+    setSelectedCategory(null); // a category filter from the old gym shouldn't silently hide everything in the new one
     const q = query(
       collection(db, "gyms", activeGym.id, "machines"),
       where("archived", "==", false)
@@ -196,6 +241,16 @@ export default function GymPage() {
     return sections.filter((s) => machinesByCategory.has(s.value));
   }, [machinesByCategory]);
 
+  // The card grid renders one flat list - chips narrow it to a single
+  // category, "All" (selectedCategory === null) shows every section's cards
+  // sorted by name so the grid isn't visually chunked by category twice.
+  const visibleMachines = useMemo(() => {
+    const list = selectedCategory
+      ? (machinesByCategory.get(selectedCategory) ?? [])
+      : filteredMachines;
+    return [...list].sort((a, b) => a.name.localeCompare(b.name));
+  }, [filteredMachines, machinesByCategory, selectedCategory]);
+
   async function handleAddMachine(e: FormEvent) {
     e.preventDefault();
     if (!user || !activeGym) return;
@@ -204,13 +259,7 @@ export default function GymPage() {
     setAddingMachine(true);
     setAddMachineError(null);
     try {
-      await addDoc(collection(db, "gyms", activeGym.id, "machines"), {
-        name,
-        category: newMachineCategory,
-        addedBy: user.uid,
-        createdAt: serverTimestamp(),
-        archived: false,
-      });
+      await createMachine(activeGym.id, user.uid, name, newMachineCategory);
       setNewMachineName("");
       setNewMachineCategory(MACHINE_CATEGORIES[0].value);
       setShowAddMachineForm(false);
@@ -252,17 +301,7 @@ export default function GymPage() {
     setQuickAddError(null);
     try {
       const toAdd = MACHINE_CATALOG.filter((c) => selectedCatalogIds.has(c.id));
-      await Promise.all(
-        toAdd.map((c) =>
-          addDoc(collection(db, "gyms", activeGym.id, "machines"), {
-            name: c.name,
-            category: c.category,
-            addedBy: user.uid,
-            createdAt: serverTimestamp(),
-            archived: false,
-          })
-        )
-      );
+      await Promise.all(toAdd.map((c) => createMachine(activeGym.id, user.uid, c.name, c.category)));
       setSelectedCatalogIds(new Set());
       setShowQuickAdd(false);
     } catch (err) {
@@ -284,6 +323,31 @@ export default function GymPage() {
 
   return (
     <div className="gym-page">
+      {homeGyms && homeGyms.length > 1 && (
+        <section className="gym-your-gyms">
+          <p className="gym-section-label">Your gyms</p>
+          <div className="gym-your-gyms-row" role="list">
+            {homeGyms.map((g) => {
+              const isActive = g.id === activeGym?.id;
+              return (
+                <button
+                  key={g.id}
+                  type="button"
+                  role="listitem"
+                  className={"gym-card" + (isActive ? " gym-card-active" : "")}
+                  disabled={isActive || adoptingGymId === g.id}
+                  onClick={() => handleAdoptGym(g.id)}
+                >
+                  <span className="gym-card-name">{g.name}</span>
+                  <span className="gym-card-location">{formatLocation(g.location)}</span>
+                  {isActive && <span className="gym-card-badge">Active</span>}
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
       <section className="card gym-active-card">
         {activeGymLoading ? (
           <p className="muted">Loading your gym…</p>
@@ -302,7 +366,7 @@ export default function GymPage() {
               className="btn btn-secondary"
               onClick={() => setSwitchRequested((v) => !v)}
             >
-              {switchRequested ? "Cancel" : "Switch gym"}
+              {switchRequested ? "Cancel" : homeGyms && homeGyms.length > 1 ? "Find another gym" : "Switch gym"}
             </button>
           </div>
         ) : (
@@ -542,40 +606,64 @@ export default function GymPage() {
                 className="gym-input gym-machine-search"
               />
 
-              {categorySections.map((c) => (
-                <div key={c.value} className="gym-category-group">
-                  <h4>{c.label}</h4>
-                  <ul className="gym-machine-list">
-                    {machinesByCategory.get(c.value)!.map((m) => {
-                      const catalogMatch = findCatalogMachine(m.name);
-                      return (
-                        <li key={m.id} className="gym-machine-row">
-                          <span className="gym-machine-row-main">
-                            {catalogMatch ? (
-                              <MachineIcon iconId={catalogMatch.id} image={catalogMatch.image} width={22} height={22} />
-                            ) : (
-                              <MachineIcon iconId="" width={22} height={22} />
-                            )}
-                            <span>{m.name}</span>
-                            {catalogMatch && <MuscleDiagram targetMuscles={catalogMatch.primaryMuscles} />}
-                          </span>
-                          <button
-                            type="button"
-                            className="gym-report-btn"
-                            disabled={reportedIds.has(m.id)}
-                            onClick={() => handleReportDuplicate(m.id)}
-                          >
-                            {reportedIds.has(m.id) ? "Thanks, we'll take a look" : "Report duplicate"}
-                          </button>
-                        </li>
-                      );
-                    })}
-                  </ul>
-                </div>
-              ))}
+              <div className="gym-category-chips" role="list">
+                <button
+                  type="button"
+                  role="listitem"
+                  className={"gym-chip" + (selectedCategory === null ? " gym-chip-active" : "")}
+                  onClick={() => setSelectedCategory(null)}
+                >
+                  All
+                </button>
+                {categorySections.map((c) => (
+                  <button
+                    key={c.value}
+                    type="button"
+                    role="listitem"
+                    className={"gym-chip" + (selectedCategory === c.value ? " gym-chip-active" : "")}
+                    onClick={() => setSelectedCategory(c.value)}
+                  >
+                    {c.value !== "other" && <FocusIcon focus={c.value} width={14} height={14} />}
+                    {c.label}
+                    <span className="gym-chip-count">{machinesByCategory.get(c.value)?.length ?? 0}</span>
+                  </button>
+                ))}
+              </div>
 
-              {filteredMachines.length === 0 && (
+              {visibleMachines.length === 0 ? (
                 <p className="muted">No machines match “{machineQuery}”.</p>
+              ) : (
+                <div className="gym-machine-grid">
+                  {visibleMachines.map((m) => {
+                    const catalogMatch = findCatalogMachine(m.name);
+                    return (
+                      <div key={m.id} className="gym-machine-card">
+                        <div className="gym-machine-card-icon">
+                          <MachineIcon
+                            iconId={catalogMatch?.id ?? ""}
+                            image={catalogMatch?.image}
+                            width={64}
+                            height={64}
+                          />
+                        </div>
+                        <span className="gym-machine-card-name">{m.name}</span>
+                        {catalogMatch && (
+                          <div className="gym-machine-card-diagram">
+                            <MuscleDiagram targetMuscles={catalogMatch.primaryMuscles} />
+                          </div>
+                        )}
+                        <button
+                          type="button"
+                          className="gym-report-btn"
+                          disabled={reportedIds.has(m.id)}
+                          onClick={() => handleReportDuplicate(m.id)}
+                        >
+                          {reportedIds.has(m.id) ? "Thanks, we'll take a look" : "Report duplicate"}
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
               )}
             </>
           )}
@@ -718,39 +806,8 @@ export default function GymPage() {
         .gym-quick-add-name {
           font-size: 14px;
         }
-        .gym-machine-row-main {
-          display: flex;
-          align-items: center;
-          gap: var(--space-2);
-        }
         .gym-machine-search {
           margin-bottom: var(--space-1);
-        }
-        .gym-category-group h4 {
-          margin: 0 0 var(--space-2);
-          font-size: 13px;
-          font-weight: 600;
-          color: var(--text-muted);
-          text-transform: uppercase;
-          letter-spacing: 0.03em;
-        }
-        .gym-machine-list {
-          list-style: none;
-          margin: 0 0 var(--space-4);
-          padding: 0;
-          display: flex;
-          flex-direction: column;
-          gap: var(--space-1);
-        }
-        .gym-machine-row {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: var(--space-3);
-          padding: var(--space-3);
-          background: var(--surface);
-          border: 1px solid var(--border);
-          border-radius: var(--radius-md);
         }
         .gym-report-btn {
           background: none;
@@ -766,6 +823,140 @@ export default function GymPage() {
           color: var(--success);
           text-decoration: none;
           cursor: default;
+        }
+
+        .gym-your-gyms {
+          display: flex;
+          flex-direction: column;
+          gap: var(--space-2);
+        }
+        .gym-section-label {
+          font-size: 13px;
+          font-weight: 600;
+          color: var(--text-muted);
+          text-transform: uppercase;
+          letter-spacing: 0.03em;
+          margin: 0 0 var(--space-2);
+        }
+        .gym-your-gyms-row {
+          display: flex;
+          gap: var(--space-3);
+          overflow-x: auto;
+          scroll-snap-type: x mandatory;
+          padding-bottom: var(--space-1);
+          -webkit-overflow-scrolling: touch;
+        }
+        .gym-your-gyms-row::-webkit-scrollbar {
+          display: none;
+        }
+        .gym-card {
+          scroll-snap-align: start;
+          flex-shrink: 0;
+          width: 160px;
+          display: flex;
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 2px;
+          padding: var(--space-3) var(--space-4);
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-lg);
+          color: var(--text);
+          text-align: left;
+          cursor: pointer;
+          position: relative;
+        }
+        .gym-card:disabled {
+          cursor: default;
+        }
+        .gym-card-active {
+          border-color: var(--accent);
+          background: var(--accent-surface);
+        }
+        .gym-card-name {
+          font-size: 15px;
+          font-weight: 600;
+        }
+        .gym-card-location {
+          font-size: 12px;
+          color: var(--text-muted);
+        }
+        .gym-card-badge {
+          position: absolute;
+          top: var(--space-2);
+          right: var(--space-2);
+          font-size: 10px;
+          font-weight: 700;
+          text-transform: uppercase;
+          letter-spacing: 0.04em;
+          color: var(--accent);
+        }
+
+        .gym-category-chips {
+          display: flex;
+          gap: var(--space-2);
+          overflow-x: auto;
+          padding-bottom: var(--space-1);
+          -webkit-overflow-scrolling: touch;
+        }
+        .gym-category-chips::-webkit-scrollbar {
+          display: none;
+        }
+        .gym-chip {
+          flex-shrink: 0;
+          display: inline-flex;
+          align-items: center;
+          gap: var(--space-1);
+          padding: var(--space-2) var(--space-3);
+          border-radius: 999px;
+          border: 1px solid var(--border);
+          background: var(--surface);
+          color: var(--text-muted);
+          font-size: 13px;
+          font-weight: 600;
+          cursor: pointer;
+        }
+        .gym-chip-active {
+          border-color: var(--accent);
+          background: var(--accent-surface);
+          color: var(--accent);
+        }
+        .gym-chip-count {
+          color: inherit;
+          opacity: 0.65;
+          font-size: 12px;
+        }
+
+        .gym-machine-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+          gap: var(--space-3);
+        }
+        .gym-machine-card {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          text-align: center;
+          gap: var(--space-2);
+          padding: var(--space-4) var(--space-3);
+          background: var(--surface);
+          border: 1px solid var(--border);
+          border-radius: var(--radius-lg);
+        }
+        .gym-machine-card-icon {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          width: 64px;
+          height: 64px;
+          color: var(--text-muted);
+        }
+        .gym-machine-card-name {
+          font-size: 14px;
+          font-weight: 600;
+        }
+        .gym-machine-card-diagram {
+          opacity: 0.85;
         }
       `}</style>
     </div>

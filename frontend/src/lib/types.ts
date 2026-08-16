@@ -39,6 +39,8 @@ export interface UserProfile {
   experienceLevel: ExperienceLevel | null;
   daysPerWeek: number | null;
   sessionLengthMinutes: number | null;
+  equipmentNotes: string | null;
+  injuryNotes: string | null;
   homeGymIds: string[];
   settings: UserSettings;
   emailVerified: boolean;

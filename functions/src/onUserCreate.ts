@@ -27,6 +27,11 @@ export const onUserCreate = functionsV1.auth.user().onCreate(async (user) => {
     createdAt: now,
     goal: null,
     goalUpdatedAt: null,
+    experienceLevel: null,
+    daysPerWeek: null,
+    sessionLengthMinutes: null,
+    equipmentNotes: null,
+    injuryNotes: null,
     homeGymIds: [],
     settings: {
       units: "metric",

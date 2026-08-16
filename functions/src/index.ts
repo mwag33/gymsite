@@ -1,6 +1,7 @@
 export { onUserCreate } from "./onUserCreate";
 export { generateSchedule } from "./generateSchedule";
 export { generateExercisesForWeek } from "./generateExercisesForWeek";
+export { regenerateSessionExercises } from "./regenerateSessionExercises";
 export { updateSession } from "./updateSession";
 export { regeneratePlan } from "./regeneratePlan";
 export { planDailySweep } from "./planDailySweep";
@@ -8,4 +9,5 @@ export { onWorkoutLogWritten } from "./onWorkoutLogWritten";
 export { deleteAccount } from "./deleteAccount";
 export { exportUserData } from "./exportUserData";
 export { updateUserSettings } from "./updateUserSettings";
+export { addHomeGym } from "./addHomeGym";
 export { billingCircuitBreaker, reenableAiGeneration } from "./billingCircuitBreaker";

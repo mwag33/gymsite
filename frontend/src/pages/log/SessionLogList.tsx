@@ -2,14 +2,16 @@
 // name, target sets/reps, a "same as last time" quick action, a
 // mark-done/skip control), expanding into the shared SetEditor. A planned
 // exercise resolves to a gym machine by exact case-insensitive name match
-// (PlanExercise carries a name/category, not a machineId) — unmatched
-// exercises fall back to "log via catalog" instead of guessing a machine.
+// (PlanExercise carries a name/category, not a machineId) first; an
+// unmatched exercise can be resolved manually via MachinePicker ("Find or
+// add"), which takes priority over the automatic match once set.
 import { useEffect, useState } from "react";
 import { collection, doc, getDoc, onSnapshot, query, where } from "firebase/firestore";
 import { db } from "../../lib/firebase";
 import type { ExerciseEntry, Machine, MachineStats, Session } from "../../lib/types";
 import { findCatalogMachine } from "../../lib/machineCatalog";
 import MachineIcon from "../../components/MachineIcon";
+import MachinePicker from "../../components/MachinePicker";
 import SetEditor, { summarizeSets } from "./SetEditor";
 
 interface SessionLogListProps {
@@ -40,6 +42,8 @@ export default function SessionLogList({
   const [skipped, setSkipped] = useState<Set<string>>(new Set());
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [draftSets, setDraftSets] = useState<{ reps: number; weightKg: number }[]>([]);
+  const [manualMachine, setManualMachine] = useState<Record<string, Machine>>({});
+  const [pickerForExerciseId, setPickerForExerciseId] = useState<string | null>(null);
 
   useEffect(() => {
     return onSnapshot(
@@ -51,7 +55,8 @@ export default function SessionLogList({
   const resolvedMachine = new Map<string, Machine>();
   for (const ex of exercises) {
     const match = machines.find((m) => m.name.trim().toLowerCase() === ex.name.trim().toLowerCase());
-    if (match) resolvedMachine.set(ex.id, match);
+    const manual = manualMachine[ex.id];
+    if (manual || match) resolvedMachine.set(ex.id, manual ?? match!);
   }
 
   useEffect(() => {
@@ -76,11 +81,11 @@ export default function SessionLogList({
         return next;
       });
     });
-    // machines/resolvedMachine are recomputed each render from `machines`; the
-    // fetch-once guard above (checking statsByExerciseId membership) is what
-    // actually prevents refetch loops.
+    // machines/resolvedMachine are recomputed each render from `machines` and
+    // `manualMachine`; the fetch-once guard above (checking statsByExerciseId
+    // membership) is what actually prevents refetch loops.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [machines, exercises]);
+  }, [machines, exercises, manualMachine]);
 
   function openEditor(exerciseId: string) {
     const stats = statsByExerciseId[exerciseId];
@@ -161,6 +166,26 @@ export default function SessionLogList({
             );
           }
 
+          if (pickerForExerciseId === ex.id) {
+            return (
+              <li key={ex.id}>
+                <MachinePicker
+                  gymId={gymId}
+                  uid={uid}
+                  machines={machines}
+                  initialQuery={ex.name}
+                  defaultCategory={ex.machineCategory}
+                  title={`Find a machine for "${ex.name}"`}
+                  onSelect={(m) => {
+                    setManualMachine((prev) => ({ ...prev, [ex.id]: m }));
+                    setPickerForExerciseId(null);
+                  }}
+                  onClose={() => setPickerForExerciseId(null)}
+                />
+              </li>
+            );
+          }
+
           const entry = logged[ex.id];
           const isSkipped = skipped.has(ex.id);
           const machine = resolvedMachine.get(ex.id);
@@ -187,7 +212,7 @@ export default function SessionLogList({
                       : `${ex.sets} × ${ex.reps}`}
                 </span>
                 {!machine && !entry && !isSkipped && (
-                  <span className="session-log-row-nomatch">Not in your gym's list</span>
+                  <span className="session-log-row-nomatch">Not in your gym's list yet</span>
                 )}
               </div>
 
@@ -224,9 +249,18 @@ export default function SessionLogList({
                     </button>
                   </>
                 ) : (
-                  <button type="button" className="log-session-item-btn" onClick={() => toggleSkip(ex.id)}>
-                    Skip
-                  </button>
+                  <>
+                    <button
+                      type="button"
+                      className="log-session-item-btn"
+                      onClick={() => setPickerForExerciseId(ex.id)}
+                    >
+                      Find or add
+                    </button>
+                    <button type="button" className="log-session-item-btn" onClick={() => toggleSkip(ex.id)}>
+                      Skip
+                    </button>
+                  </>
                 )}
               </div>
             </li>

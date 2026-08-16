@@ -5,6 +5,13 @@ import { useNavigate } from "react-router-dom";
 import type { Session } from "../../lib/types";
 import { FOCUS_LABELS } from "./planFocus";
 import AdjustmentBanner from "./AdjustmentBanner";
+import { FocusBadge } from "./focusIcons";
+
+const STATUS_LABEL: Partial<Record<Session["status"], string>> = {
+  done: "Done",
+  partial: "Partially logged",
+  swapped: "Logged something else",
+};
 
 interface TodayHeroProps {
   session: Session | null;
@@ -27,8 +34,11 @@ export default function TodayHero({ session }: TodayHeroProps) {
   if (isRest) {
     return (
       <div className="today-hero-rest">
-        <span className="today-hero-rest-label">Rest day</span>
-        {session.note && <p className="today-hero-rest-note">{session.note}</p>}
+        <FocusBadge session={session} size={22} muted />
+        <div>
+          <span className="today-hero-rest-label">Rest day</span>
+          {session.note && <p className="today-hero-rest-note">{session.note}</p>}
+        </div>
       </div>
     );
   }
@@ -37,14 +47,20 @@ export default function TodayHero({ session }: TodayHeroProps) {
     <div className="today-hero card">
       <AdjustmentBanner session={session} />
       <div className="today-hero-header">
-        <span className="today-hero-eyebrow">Today</span>
-        <h2 className="today-hero-focus">{FOCUS_LABELS[session.focus]}</h2>
+        <FocusBadge session={session} size={36} />
+        <div className="today-hero-heading">
+          <span className="today-hero-eyebrow">
+            Today{STATUS_LABEL[session.status] ? ` · ${STATUS_LABEL[session.status]}` : ""}
+          </span>
+          <h2 className="today-hero-focus">{FOCUS_LABELS[session.focus]}</h2>
+        </div>
       </div>
 
       {session.exercises === null ? (
         <p className="today-hero-sub">Exercises for this session haven't been generated yet.</p>
       ) : exerciseNames.length > 0 ? (
         <p className="today-hero-sub">
+          {session.exercises.length} exercise{session.exercises.length === 1 ? "" : "s"} ·{" "}
           {exerciseNames.join(", ")}
           {(session.exercises?.length ?? 0) > exerciseNames.length ? "…" : ""}
         </p>
@@ -57,7 +73,7 @@ export default function TodayHero({ session }: TodayHeroProps) {
         className="btn btn-primary today-hero-cta"
         onClick={() => navigate("/log")}
       >
-        Start logging
+        {session.status === "upcoming" ? "Start logging" : "Log more for today"}
       </button>
 
       <style>{`
@@ -70,8 +86,14 @@ export default function TodayHero({ session }: TodayHeroProps) {
         }
         .today-hero-header {
           display: flex;
+          align-items: center;
+          gap: var(--space-3);
+        }
+        .today-hero-heading {
+          display: flex;
           flex-direction: column;
           gap: 2px;
+          min-width: 0;
         }
         .today-hero-eyebrow {
           font-size: 12px;
@@ -96,8 +118,8 @@ export default function TodayHero({ session }: TodayHeroProps) {
         }
         .today-hero-rest {
           display: flex;
-          flex-direction: column;
-          gap: 2px;
+          align-items: center;
+          gap: var(--space-3);
           padding: var(--space-3);
           opacity: 0.7;
         }

@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import type { Session } from "../../lib/types";
 import { FOCUS_LABELS } from "./planFocus";
 import { shortDateLabel } from "./planDate";
+import { FocusBadge } from "./focusIcons";
 
 interface UpcomingListProps {
   sessions: Session[];
@@ -40,7 +41,15 @@ export default function UpcomingList({ sessions, today, onOpenMonth, limit = 5 }
                 onClick={() => navigate(`/session/${session.date}`)}
               >
                 <span className="upcoming-list-date">{shortDateLabel(session.date)}</span>
-                <span className="upcoming-list-focus">{FOCUS_LABELS[session.focus]}</span>
+                <span className="upcoming-list-main">
+                  <FocusBadge session={session} size={22} />
+                  <span className="upcoming-list-focus">{FOCUS_LABELS[session.focus]}</span>
+                </span>
+                <span className="upcoming-list-count">
+                  {session.exercises === null
+                    ? "Not planned yet"
+                    : `${session.exercises.length} exercise${session.exercises.length === 1 ? "" : "s"}`}
+                </span>
               </button>
             </li>
           ))}
@@ -86,7 +95,7 @@ export default function UpcomingList({ sessions, today, onOpenMonth, limit = 5 }
           width: 100%;
           display: flex;
           align-items: center;
-          justify-content: space-between;
+          gap: var(--space-3);
           background: var(--surface);
           border: 1px solid var(--border);
           border-radius: var(--radius-md);
@@ -97,10 +106,26 @@ export default function UpcomingList({ sessions, today, onOpenMonth, limit = 5 }
           text-align: left;
         }
         .upcoming-list-date {
+          flex-shrink: 0;
+          width: 44px;
           color: var(--text-muted);
+          font-size: 13px;
+        }
+        .upcoming-list-main {
+          flex: 1;
+          min-width: 0;
+          display: flex;
+          align-items: center;
+          gap: var(--space-2);
         }
         .upcoming-list-focus {
           font-weight: 600;
+        }
+        .upcoming-list-count {
+          flex-shrink: 0;
+          color: var(--text-muted);
+          font-size: 12px;
+          text-align: right;
         }
       `}</style>
     </div>

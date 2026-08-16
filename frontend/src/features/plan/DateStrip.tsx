@@ -1,20 +1,22 @@
 // Horizontal, scroll-snapped row of day chips (weekday letter, day number,
-// status dot). Tapping a chip navigates to /session/:date.
+// focus icon badge). Tapping a chip navigates to /session/:date.
 import { useNavigate } from "react-router-dom";
-import type { Session, SessionStatus } from "../../lib/types";
+import type { Session } from "../../lib/types";
 import { dayOfMonth, weekdayLetter } from "./planDate";
+import { FocusBadge } from "./focusIcons";
+import { FOCUS_LABELS } from "./planFocus";
 
 interface DateStripProps {
   sessions: Session[];
   today: string;
 }
 
-const STATUS_DOT_CLASS: Record<SessionStatus, string> = {
-  upcoming: "date-strip-dot-upcoming",
-  done: "date-strip-dot-done",
-  partial: "date-strip-dot-done",
-  skipped: "date-strip-dot-missed",
-  swapped: "date-strip-dot-swapped",
+const STATUS_WORD: Record<Session["status"], string> = {
+  upcoming: "planned",
+  done: "done",
+  partial: "partially done",
+  skipped: "missed",
+  swapped: "swapped",
 };
 
 export default function DateStrip({ sessions, today }: DateStripProps) {
@@ -26,6 +28,7 @@ export default function DateStrip({ sessions, today }: DateStripProps) {
       {sorted.map((session) => {
         const isToday = session.date === today;
         const isRest = session.focus === "rest";
+        const label = `${FOCUS_LABELS[session.focus]}${isRest ? "" : `, ${STATUS_WORD[session.status]}`}`;
         return (
           <button
             key={session.id}
@@ -33,10 +36,12 @@ export default function DateStrip({ sessions, today }: DateStripProps) {
             role="listitem"
             className={"date-strip-chip" + (isToday ? " date-strip-chip-today" : "")}
             onClick={() => navigate(`/session/${session.date}`)}
+            title={label}
+            aria-label={`${weekdayLetter(session.date)} ${dayOfMonth(session.date)}: ${label}`}
           >
             <span className="date-strip-weekday">{weekdayLetter(session.date)}</span>
             <span className="date-strip-daynum tnum">{dayOfMonth(session.date)}</span>
-            {!isRest && <span className={"date-strip-dot " + STATUS_DOT_CLASS[session.status]} aria-hidden />}
+            <FocusBadge session={session} size={20} />
           </button>
         );
       })}
@@ -79,27 +84,6 @@ export default function DateStrip({ sessions, today }: DateStripProps) {
         .date-strip-daynum {
           font-size: 15px;
           font-weight: 700;
-        }
-        .date-strip-dot {
-          width: 6px;
-          height: 6px;
-          border-radius: 50%;
-          background: var(--border);
-        }
-        .date-strip-dot-upcoming {
-          background: var(--border);
-        }
-        .date-strip-dot-done {
-          background: var(--success);
-        }
-        .date-strip-dot-missed {
-          background: var(--danger);
-        }
-        .date-strip-dot-swapped {
-          background: transparent;
-          border: 1.5px solid var(--accent);
-          width: 5px;
-          height: 5px;
         }
       `}</style>
     </div>

@@ -21,7 +21,7 @@ export default function PlanDayExercises({ exercises }: PlanDayExercisesProps) {
           const catalogMatch = findCatalogMachine(ex.name);
           return (
             <li key={ex.id} className="plan-day-exercise-row">
-              <MachineIcon iconId={catalogMatch?.id ?? ""} width={24} height={24} />
+              <MachineIcon iconId={catalogMatch?.id ?? ""} image={catalogMatch?.image} width={24} height={24} />
               <div className="plan-day-exercise-info">
                 <span className="plan-day-exercise-name">{ex.name}</span>
                 <span className="plan-day-exercise-sets">

@@ -183,9 +183,30 @@ const GENERIC_SHAPE = (
 
 interface MachineIconProps extends SVGProps<SVGSVGElement> {
   iconId: string;
+  /** Photo path (CatalogMachine.image) - shown instead of the SVG pictogram when present. */
+  image?: string;
 }
 
-/** Renders the catalog pictogram for `iconId`, or a generic dumbbell icon if there's no match. */
-export default function MachineIcon({ iconId, ...props }: MachineIconProps) {
-  return <Icon {...props}>{SHAPES[iconId] ?? GENERIC_SHAPE}</Icon>;
+/**
+ * Renders a photo for `image` when supplied (frontend/public/machine-gallery/),
+ * otherwise the catalog pictogram for `iconId`, or a generic dumbbell icon if
+ * neither matches.
+ */
+export default function MachineIcon({ iconId, image, width, height, ...props }: MachineIconProps) {
+  if (image) {
+    return (
+      <img
+        src={image}
+        alt=""
+        width={width}
+        height={height}
+        style={{ objectFit: "contain", width, height }}
+      />
+    );
+  }
+  return (
+    <Icon width={width} height={height} {...props}>
+      {SHAPES[iconId] ?? GENERIC_SHAPE}
+    </Icon>
+  );
 }

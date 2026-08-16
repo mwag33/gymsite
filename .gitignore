@@ -18,6 +18,10 @@ firestore-debug.log
 ui-debug.log
 firebase-export-*/
 
+# Source drop for machine-gallery images - frontend/public/machine-gallery/
+# is the actual served copy that's tracked; this is just the original folder.
+/machine_gallery/
+
 # Editor / OS
 .DS_Store
 .vscode/*

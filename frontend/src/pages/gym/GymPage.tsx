@@ -462,7 +462,7 @@ export default function GymPage() {
                             checked={selectedCatalogIds.has(c.id)}
                             onChange={() => toggleCatalogSelection(c.id)}
                           />
-                          <MachineIcon iconId={c.id} />
+                          <MachineIcon iconId={c.id} image={c.image} />
                           <span className="gym-quick-add-name">{c.name}</span>
                         </label>
                         <MuscleDiagram targetMuscles={c.primaryMuscles} />
@@ -552,7 +552,7 @@ export default function GymPage() {
                         <li key={m.id} className="gym-machine-row">
                           <span className="gym-machine-row-main">
                             {catalogMatch ? (
-                              <MachineIcon iconId={catalogMatch.id} width={22} height={22} />
+                              <MachineIcon iconId={catalogMatch.id} image={catalogMatch.image} width={22} height={22} />
                             ) : (
                               <MachineIcon iconId="" width={22} height={22} />
                             )}

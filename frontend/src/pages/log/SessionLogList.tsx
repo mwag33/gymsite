@@ -176,7 +176,7 @@ export default function SessionLogList({
                 (isSkipped ? " session-log-row-skipped" : "")
               }
             >
-              <MachineIcon iconId={catalogMatch?.id ?? ""} width={24} height={24} />
+              <MachineIcon iconId={catalogMatch?.id ?? ""} image={catalogMatch?.image} width={24} height={24} />
               <div className="session-log-row-info">
                 <span className="session-log-row-name">{ex.name}</span>
                 <span className="session-log-row-target tnum">

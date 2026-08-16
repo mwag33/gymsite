@@ -145,7 +145,12 @@ export default function PlanEditor({ sessions, onSaved, onCancel }: PlanEditorPr
 
             {(session.exercises ?? []).map((ex) => (
               <div key={ex.id} className="plan-editor-exercise-row">
-                <MachineIcon iconId={findCatalogMachine(ex.name)?.id ?? ""} width={20} height={20} />
+                <MachineIcon
+                  iconId={findCatalogMachine(ex.name)?.id ?? ""}
+                  image={findCatalogMachine(ex.name)?.image}
+                  width={20}
+                  height={20}
+                />
                 <input
                   type="text"
                   className="plan-editor-input plan-editor-input-name"

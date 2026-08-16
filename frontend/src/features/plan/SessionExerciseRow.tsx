@@ -25,7 +25,7 @@ export default function SessionExerciseRow({ exercise, completion }: SessionExer
       <span className={"session-exercise-check" + (done ? " session-exercise-check-done" : "")} aria-hidden>
         {done ? "✓" : ""}
       </span>
-      <MachineIcon iconId={catalogMatch?.id ?? ""} width={24} height={24} />
+      <MachineIcon iconId={catalogMatch?.id ?? ""} image={catalogMatch?.image} width={24} height={24} />
       <div className="session-exercise-info">
         <span className="session-exercise-name">{exercise.name}</span>
         {done && completion?.loggedSets ? (

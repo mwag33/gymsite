@@ -166,6 +166,47 @@ export interface PlanDoc {
   lastSweepAt: unknown;
 }
 
+// A TrackedSession is the client-owned, mutable record of what a user is
+// actually doing/did, as opposed to Session (above), which is only ever a
+// server-generated suggestion inside PlanDoc.sessions[]. Unlike Session,
+// TrackedSession is id-keyed (not date-keyed) so multiple sessions can exist
+// on the same calendar date, and it is user-creatable on any date (including
+// past dates) rather than only AI-generated. See firestore.rules for the
+// validation this trades an append-only guarantee for.
+export type TrackedSessionStatus = "in_progress" | "done";
+export type TrackedExerciseStatus = "pending" | "logged" | "skipped";
+
+export interface TrackedExercise {
+  id: string;
+  name: string;
+  machineId: string | null;
+  gymId: string | null;
+  machineCategory: MachineCategory;
+  targetSets?: number;
+  targetReps?: string;
+  sets: SetEntry[];
+  status: TrackedExerciseStatus;
+}
+
+export interface TrackedSession {
+  id: string;
+  date: string; // "YYYY-MM-DD", user-local calendar date
+  focus: TrainingPlanFocus;
+  note: string;
+  gymId: string | null;
+  exercises: TrackedExercise[];
+  status: TrackedSessionStatus;
+  // FK to Session.id, set once at creation via the "accept a suggestion"
+  // flow. Null for a session the user created from scratch (ad hoc or
+  // backdated logging with no corresponding plan suggestion).
+  sourcePlanSessionId: string | null;
+  createdAt: unknown; // Firestore Timestamp
+  updatedAt: unknown; // Firestore Timestamp, bumped on every autosave write
+  // Last time the invisible workoutLogs sync event fired for this session
+  // (see useAutosaveTrackedSession) - null until the first set is saved.
+  lastSyncedLogAt: unknown | null;
+}
+
 export const MACHINE_CATEGORIES: { value: MachineCategory; label: string }[] = [
   { value: "chest", label: "Chest" },
   { value: "back", label: "Back" },

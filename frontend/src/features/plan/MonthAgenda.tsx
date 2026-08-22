@@ -2,17 +2,20 @@
 // cell pairs the date number with a small FocusIcon (training-type glyph),
 // matching the icon treatment DateStrip/UpcomingList already use for the
 // weekly view. Aligned to real weekdays (padded with blank leading/trailing
-// cells), colored per session status, click navigates to /session/:date.
+// cells), colored per merged status (a tracked session overrides the plan
+// suggestion's status - see mergeDaySessions), click navigates to /day/:date.
 import { useNavigate } from "react-router-dom";
-import type { Session, SessionStatus } from "../../lib/types";
+import type { Session, SessionStatus, TrackedSession } from "../../lib/types";
 import { parseLocalDateKey } from "./planDate";
 import { FocusIcon } from "./focusIcons";
+import { mergeDaySessions, summarizeDayStatus } from "./mergeSessions";
 
 interface MonthAgendaProps {
   sessions: Session[];
+  trackedSessions?: TrackedSession[];
   today: string;
   weekStartsOn?: number; // 0 = Sunday .. 6 = Saturday
-  onClose: () => void;
+  onClose?: () => void;
 }
 
 const STATUS_CLASS: Record<SessionStatus, string> = {
@@ -23,16 +26,24 @@ const STATUS_CLASS: Record<SessionStatus, string> = {
   swapped: "month-agenda-cell-swapped",
 };
 
-export default function MonthAgenda({ sessions, today, weekStartsOn = 1, onClose }: MonthAgendaProps) {
+export default function MonthAgenda({
+  sessions,
+  trackedSessions = [],
+  today,
+  weekStartsOn = 1,
+  onClose,
+}: MonthAgendaProps) {
   const navigate = useNavigate();
   const sorted = [...sessions].sort((a, b) => a.date.localeCompare(b.date));
   if (sorted.length === 0) {
     return (
       <div className="month-agenda card">
         <p>No sessions scheduled yet.</p>
-        <button type="button" className="btn btn-secondary" onClick={onClose}>
-          Close
-        </button>
+        {onClose && (
+          <button type="button" className="btn btn-secondary" onClick={onClose}>
+            Close
+          </button>
+        )}
       </div>
     );
   }
@@ -50,15 +61,27 @@ export default function MonthAgenda({ sessions, today, weekStartsOn = 1, onClose
     <div className="month-agenda card">
       <div className="month-agenda-header">
         <h3>This month</h3>
-        <button type="button" className="month-agenda-close" onClick={onClose} aria-label="Close">
-          &times;
-        </button>
+        {onClose && (
+          <button type="button" className="month-agenda-close" onClick={onClose} aria-label="Close">
+            &times;
+          </button>
+        )}
       </div>
       <div className="month-agenda-grid">
         {cells.map((session, i) => {
           if (!session) return <span key={`pad-${i}`} className="month-agenda-cell month-agenda-cell-empty" />;
           const isToday = session.date === today;
           const isRest = session.focus === "rest";
+          const view = mergeDaySessions(sessions, trackedSessions, session.date);
+          const mergedStatus = summarizeDayStatus(view);
+          const statusClass =
+            mergedStatus === "done"
+              ? "month-agenda-cell-done"
+              : mergedStatus === "in_progress"
+                ? "month-agenda-cell-upcoming"
+                : mergedStatus
+                  ? STATUS_CLASS[mergedStatus]
+                  : "";
           return (
             <button
               key={session.id}
@@ -66,9 +89,9 @@ export default function MonthAgenda({ sessions, today, weekStartsOn = 1, onClose
               className={
                 "month-agenda-cell" +
                 (isToday ? " month-agenda-cell-today" : "") +
-                (!isRest ? ` ${STATUS_CLASS[session.status]}` : "")
+                (!isRest ? ` ${statusClass}` : "")
               }
-              onClick={() => navigate(`/session/${session.date}`)}
+              onClick={() => navigate(`/day/${session.date}`)}
             >
               <span className="month-agenda-cell-num tnum">{parseLocalDateKey(session.date).getDate()}</span>
               {!isRest && <FocusIcon focus={session.focus} width={12} height={12} className="month-agenda-cell-icon" />}

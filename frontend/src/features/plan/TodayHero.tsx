@@ -1,26 +1,22 @@
-// Today's focus card: exercise-name preview, "Start logging" CTA, and an
-// inline AdjustmentBanner if today's session was rescheduled. Quieter state
-// for rest days per the plan's visual-polish guidance (recede, no status dot).
+// Today's focus card. Now driven by the merged DaySessionView (see
+// mergeSessions.ts) instead of a single PlanDoc session, since a day can hold
+// zero, one, or several tracked sessions plus an unaccepted suggestion.
+// Quieter state for rest days per the plan's visual-polish guidance (recede,
+// no status dot).
 import { useNavigate } from "react-router-dom";
-import type { Session } from "../../lib/types";
+import type { ReactNode } from "react";
+import type { DaySessionView } from "./mergeSessions";
 import { FOCUS_LABELS } from "./planFocus";
-import AdjustmentBanner from "./AdjustmentBanner";
-import { FocusBadge } from "./focusIcons";
-
-const STATUS_LABEL: Partial<Record<Session["status"], string>> = {
-  done: "Done",
-  partial: "Partially logged",
-  swapped: "Logged something else",
-};
+import { FocusBadge, FocusIcon } from "./focusIcons";
 
 interface TodayHeroProps {
-  session: Session | null;
+  today: DaySessionView;
 }
 
-export default function TodayHero({ session }: TodayHeroProps) {
-  const navigate = useNavigate();
+function renderContent(today: DaySessionView, navigate: (path: string) => void): ReactNode {
+  const { tracked, unacceptedSuggestion } = today;
 
-  if (!session) {
+  if (tracked.length === 0 && !unacceptedSuggestion) {
     return (
       <div className="today-hero card today-hero-empty">
         <p>No session scheduled for today yet.</p>
@@ -28,53 +24,103 @@ export default function TodayHero({ session }: TodayHeroProps) {
     );
   }
 
-  const isRest = session.focus === "rest";
-  const exerciseNames = (session.exercises ?? []).slice(0, 3).map((ex) => ex.name);
-
-  if (isRest) {
+  if (tracked.length === 0 && unacceptedSuggestion?.focus === "rest") {
     return (
       <div className="today-hero-rest">
-        <FocusBadge session={session} size={22} muted />
+        <FocusBadge session={unacceptedSuggestion} size={22} muted />
         <div>
           <span className="today-hero-rest-label">Rest day</span>
-          {session.note && <p className="today-hero-rest-note">{session.note}</p>}
+          {unacceptedSuggestion.note && <p className="today-hero-rest-note">{unacceptedSuggestion.note}</p>}
         </div>
       </div>
     );
   }
 
+  if (tracked.length > 1) {
+    return (
+      <div className="today-hero-stack">
+        {tracked.map((session) => (
+          <button
+            key={session.id}
+            type="button"
+            className="today-hero card today-hero-stacked-item"
+            onClick={() => navigate(`/session/${session.id}`)}
+          >
+            <FocusIcon focus={session.focus} width={28} height={28} />
+            <div className="today-hero-heading">
+              <span className="today-hero-eyebrow">{session.status === "done" ? "Done" : "In progress"}</span>
+              <h2 className="today-hero-focus">{FOCUS_LABELS[session.focus] ?? session.focus}</h2>
+            </div>
+          </button>
+        ))}
+      </div>
+    );
+  }
+
+  if (tracked.length === 1) {
+    const session = tracked[0];
+    const exerciseNames = session.exercises.slice(0, 3).map((ex) => ex.name);
+    return (
+      <div className="today-hero card">
+        <div className="today-hero-header">
+          <FocusIcon focus={session.focus} width={36} height={36} />
+          <div className="today-hero-heading">
+            <span className="today-hero-eyebrow">
+              Today · {session.status === "done" ? "Done" : "In progress"}
+            </span>
+            <h2 className="today-hero-focus">{FOCUS_LABELS[session.focus] ?? session.focus}</h2>
+          </div>
+        </div>
+        <p className="today-hero-sub">
+          {session.exercises.length === 0
+            ? "No exercises yet."
+            : `${session.exercises.length} exercise${session.exercises.length === 1 ? "" : "s"} · ${exerciseNames.join(", ")}${session.exercises.length > exerciseNames.length ? "…" : ""}`}
+        </p>
+        <button type="button" className="btn btn-primary today-hero-cta" onClick={() => navigate(`/session/${session.id}`)}>
+          {session.status === "done" ? "Review session" : "Continue logging"}
+        </button>
+      </div>
+    );
+  }
+
+  // tracked.length === 0 but there's a non-rest unaccepted suggestion.
+  const suggestion = unacceptedSuggestion!;
+  const exerciseNames = (suggestion.exercises ?? []).slice(0, 3).map((ex) => ex.name);
   return (
     <div className="today-hero card">
-      <AdjustmentBanner session={session} />
       <div className="today-hero-header">
-        <FocusBadge session={session} size={36} />
+        <FocusBadge session={suggestion} size={36} />
         <div className="today-hero-heading">
-          <span className="today-hero-eyebrow">
-            Today{STATUS_LABEL[session.status] ? ` · ${STATUS_LABEL[session.status]}` : ""}
-          </span>
-          <h2 className="today-hero-focus">{FOCUS_LABELS[session.focus]}</h2>
+          <span className="today-hero-eyebrow">Today</span>
+          <h2 className="today-hero-focus">{FOCUS_LABELS[suggestion.focus]}</h2>
         </div>
       </div>
 
-      {session.exercises === null ? (
+      {suggestion.exercises === null ? (
         <p className="today-hero-sub">Exercises for this session haven't been generated yet.</p>
       ) : exerciseNames.length > 0 ? (
         <p className="today-hero-sub">
-          {session.exercises.length} exercise{session.exercises.length === 1 ? "" : "s"} ·{" "}
+          {suggestion.exercises.length} exercise{suggestion.exercises.length === 1 ? "" : "s"} ·{" "}
           {exerciseNames.join(", ")}
-          {(session.exercises?.length ?? 0) > exerciseNames.length ? "…" : ""}
+          {(suggestion.exercises?.length ?? 0) > exerciseNames.length ? "…" : ""}
         </p>
       ) : (
         <p className="today-hero-sub">No exercises planned for today.</p>
       )}
 
-      <button
-        type="button"
-        className="btn btn-primary today-hero-cta"
-        onClick={() => navigate("/log")}
-      >
-        {session.status === "upcoming" ? "Start logging" : "Log more for today"}
+      <button type="button" className="btn btn-primary today-hero-cta" onClick={() => navigate("/log")}>
+        Start logging
       </button>
+    </div>
+  );
+}
+
+export default function TodayHero({ today }: TodayHeroProps) {
+  const navigate = useNavigate();
+
+  return (
+    <>
+      {renderContent(today, navigate)}
 
       <style>{`
         .today-hero {
@@ -83,6 +129,18 @@ export default function TodayHero({ session }: TodayHeroProps) {
           gap: var(--space-3);
           background: var(--accent-surface);
           border-color: var(--accent);
+        }
+        .today-hero-stack {
+          display: flex;
+          flex-direction: column;
+          gap: var(--space-3);
+        }
+        .today-hero-stacked-item {
+          flex-direction: row;
+          align-items: center;
+          gap: var(--space-3);
+          text-align: left;
+          cursor: pointer;
         }
         .today-hero-header {
           display: flex;
@@ -133,6 +191,6 @@ export default function TodayHero({ session }: TodayHeroProps) {
           color: var(--text-muted);
         }
       `}</style>
-    </div>
+    </>
   );
 }

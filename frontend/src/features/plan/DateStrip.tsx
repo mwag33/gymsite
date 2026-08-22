@@ -1,5 +1,5 @@
 // Horizontal, scroll-snapped row of day chips (weekday letter, day number,
-// focus icon badge). Tapping a chip navigates to /session/:date.
+// focus icon badge). Tapping a chip navigates to /day/:date.
 import { useNavigate } from "react-router-dom";
 import type { Session } from "../../lib/types";
 import { dayOfMonth, weekdayLetter } from "./planDate";
@@ -35,7 +35,7 @@ export default function DateStrip({ sessions, today }: DateStripProps) {
             type="button"
             role="listitem"
             className={"date-strip-chip" + (isToday ? " date-strip-chip-today" : "")}
-            onClick={() => navigate(`/session/${session.date}`)}
+            onClick={() => navigate(`/day/${session.date}`)}
             title={label}
             aria-label={`${weekdayLetter(session.date)} ${dayOfMonth(session.date)}: ${label}`}
           >

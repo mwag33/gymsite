@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { doc, onSnapshot } from "firebase/firestore";
+import { useNavigate } from "react-router-dom";
+import { collection, doc, onSnapshot } from "firebase/firestore";
 import { db } from "../../lib/firebase";
 import { useAuth } from "../../contexts/AuthContext";
 import { useActiveGym } from "../../contexts/ActiveGymContext";
@@ -8,9 +9,9 @@ import AdherenceMeter from "../../components/AdherenceMeter";
 import TodayHero from "../../features/plan/TodayHero";
 import DateStrip from "../../features/plan/DateStrip";
 import UpcomingList from "../../features/plan/UpcomingList";
-import MonthAgenda from "../../features/plan/MonthAgenda";
+import { mergeDaySessions } from "../../features/plan/mergeSessions";
 import { addDaysToKey, toLocalDateKey } from "../../features/plan/planDate";
-import type { PlanDoc } from "../../lib/types";
+import type { PlanDoc, TrackedSession } from "../../lib/types";
 
 // A week is "close enough to running out" once the exercise horizon is
 // within this many days of today — matches the plan's rolling-fill trigger.
@@ -21,8 +22,9 @@ const DATE_STRIP_WINDOW_DAYS = 7;
 export default function HomePage() {
   const { user, profile } = useAuth();
   const { activeGym } = useActiveGym();
+  const navigate = useNavigate();
   const [plan, setPlan] = useState<PlanDoc | null | undefined>(undefined);
-  const [monthOpen, setMonthOpen] = useState(false);
+  const [trackedSessions, setTrackedSessions] = useState<TrackedSession[]>([]);
   const horizonRefillRequested = useRef<string | null>(null);
 
   useEffect(() => {
@@ -31,6 +33,13 @@ export default function HomePage() {
     return onSnapshot(doc(db, "users", user.uid, "plans", "current"), (snap) => {
       setPlan(snap.exists() ? (snap.data() as PlanDoc) : null);
     });
+  }, [user]);
+
+  useEffect(() => {
+    if (!user) return;
+    return onSnapshot(collection(db, "users", user.uid, "trackedSessions"), (snap) =>
+      setTrackedSessions(snap.docs.map((d) => ({ id: d.id, ...(d.data() as Omit<TrackedSession, "id">) })))
+    );
   }, [user]);
 
   const today = useMemo(() => toLocalDateKey(new Date()), []);
@@ -65,7 +74,7 @@ export default function HomePage() {
     return <div className="card">Setting up your plan... this usually only takes a moment.</div>;
   }
 
-  const todaySession = plan.sessions.find((s) => s.date === today) ?? null;
+  const todayView = mergeDaySessions(plan.sessions, trackedSessions, today);
   const windowEnd = addDaysToKey(today, DATE_STRIP_WINDOW_DAYS);
   const stripSessions = plan.sessions.filter((s) => s.date >= today && s.date <= windowEnd);
 
@@ -82,20 +91,11 @@ export default function HomePage() {
         target={plan.frequencyPerWeek || trainingThisWindow.length || null}
       />
 
-      <TodayHero session={todaySession} />
+      <TodayHero today={todayView} />
 
       <DateStrip sessions={stripSessions} today={today} />
 
-      <UpcomingList sessions={plan.sessions} today={today} onOpenMonth={() => setMonthOpen(true)} />
-
-      {monthOpen && (
-        <MonthAgenda
-          sessions={plan.sessions}
-          today={today}
-          weekStartsOn={profile?.settings?.weekStartsOn ?? 1}
-          onClose={() => setMonthOpen(false)}
-        />
-      )}
+      <UpcomingList sessions={plan.sessions} today={today} onOpenMonth={() => navigate("/calendar")} />
 
       <style>{`
         .home-page {

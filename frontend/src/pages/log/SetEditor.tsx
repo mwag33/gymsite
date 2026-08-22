@@ -21,10 +21,8 @@ interface SetEditorProps {
   onSetsChange: (sets: SetEntry[]) => void;
   lastStats?: MachineStats | null;
   statsLoading?: boolean;
-  onSave: () => void;
   onClose: () => void;
   error?: string | null;
-  saveLabel?: string;
 }
 
 export default function SetEditor({
@@ -33,10 +31,8 @@ export default function SetEditor({
   onSetsChange,
   lastStats,
   statsLoading,
-  onSave,
   onClose,
   error,
-  saveLabel = "Save exercise",
 }: SetEditorProps) {
   function adjustSet(index: number, field: "weightKg" | "reps", delta: number) {
     onSetsChange(
@@ -125,10 +121,6 @@ export default function SetEditor({
       </button>
 
       {error && <p className="log-error-text">{error}</p>}
-
-      <button type="button" className="btn btn-primary log-save-exercise-btn" onClick={onSave}>
-        {saveLabel}
-      </button>
     </div>
   );
 }

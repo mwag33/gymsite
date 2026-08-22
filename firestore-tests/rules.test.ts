@@ -215,6 +215,149 @@ describe('/users/{uid}/workoutLogs/{logId}', () => {
   });
 });
 
+describe('/users/{uid}/trackedSessions/{sessionId}', () => {
+  const validSession = {
+    date: '2026-08-22',
+    focus: 'chest',
+    note: '',
+    gymId: 'gym-1',
+    exercises: [
+      {
+        id: 'ex-1',
+        name: 'Bench Press',
+        machineId: 'm-1',
+        gymId: 'gym-1',
+        machineCategory: 'chest',
+        targetSets: 3,
+        targetReps: '8-12',
+        sets: [],
+        status: 'pending',
+      },
+    ],
+    status: 'in_progress',
+    sourcePlanSessionId: null,
+    createdAt: Timestamp.now(),
+    updatedAt: Timestamp.now(),
+    lastSyncedLogAt: null,
+  };
+
+  it('allows the owner to create a valid tracked session', async () => {
+    await assertSucceeds(setDoc(doc(aliceDb(), 'users', UID_A, 'trackedSessions', 's-1'), validSession));
+  });
+
+  it('allows the owner to read their own tracked session', async () => {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore(), 'users', UID_A, 'trackedSessions', 's-1'), validSession);
+    });
+    await assertSucceeds(getDoc(doc(aliceDb(), 'users', UID_A, 'trackedSessions', 's-1')));
+  });
+
+  it('denies another user creating a tracked session for someone else', async () => {
+    await assertFails(setDoc(doc(bobDb(), 'users', UID_A, 'trackedSessions', 's-1'), validSession));
+  });
+
+  it('denies another user reading a foreign tracked session', async () => {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore(), 'users', UID_A, 'trackedSessions', 's-1'), validSession);
+    });
+    await assertFails(getDoc(doc(bobDb(), 'users', UID_A, 'trackedSessions', 's-1')));
+  });
+
+  it('rejects creating a session with a malformed date', async () => {
+    await assertFails(
+      setDoc(doc(aliceDb(), 'users', UID_A, 'trackedSessions', 's-bad-date'), {
+        ...validSession,
+        date: '08-22-2026',
+      }),
+    );
+  });
+
+  it('rejects creating a session with an invalid focus', async () => {
+    await assertFails(
+      setDoc(doc(aliceDb(), 'users', UID_A, 'trackedSessions', 's-bad-focus'), {
+        ...validSession,
+        focus: 'arms',
+      }),
+    );
+  });
+
+  it('rejects creating a session with more than 20 exercises', async () => {
+    const tooMany = Array.from({ length: 21 }, (_, i) => ({ ...validSession.exercises[0], id: `ex-${i}` }));
+    await assertFails(
+      setDoc(doc(aliceDb(), 'users', UID_A, 'trackedSessions', 's-too-many'), {
+        ...validSession,
+        exercises: tooMany,
+      }),
+    );
+  });
+
+  it('rejects creating a session with extra unexpected fields', async () => {
+    await assertFails(
+      setDoc(doc(aliceDb(), 'users', UID_A, 'trackedSessions', 's-extra'), {
+        ...validSession,
+        notes: 'this field is not in the schema',
+      }),
+    );
+  });
+
+  it('allows the owner to update exercises (autosave)', async () => {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore(), 'users', UID_A, 'trackedSessions', 's-1'), validSession);
+    });
+    await assertSucceeds(
+      updateDoc(doc(aliceDb(), 'users', UID_A, 'trackedSessions', 's-1'), {
+        exercises: [
+          { ...validSession.exercises[0], sets: [{ reps: 10, weightKg: 60 }], status: 'logged' },
+        ],
+        status: 'done',
+        updatedAt: Timestamp.now(),
+        lastSyncedLogAt: Timestamp.now(),
+      }),
+    );
+  });
+
+  it('denies changing the date after creation', async () => {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore(), 'users', UID_A, 'trackedSessions', 's-1'), validSession);
+    });
+    await assertFails(
+      updateDoc(doc(aliceDb(), 'users', UID_A, 'trackedSessions', 's-1'), { date: '2026-08-23' }),
+    );
+  });
+
+  it('denies changing sourcePlanSessionId after creation', async () => {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore(), 'users', UID_A, 'trackedSessions', 's-1'), validSession);
+    });
+    await assertFails(
+      updateDoc(doc(aliceDb(), 'users', UID_A, 'trackedSessions', 's-1'), { sourcePlanSessionId: 'plan-session-1' }),
+    );
+  });
+
+  it('denies another user updating a foreign tracked session', async () => {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore(), 'users', UID_A, 'trackedSessions', 's-1'), validSession);
+    });
+    await assertFails(
+      updateDoc(doc(bobDb(), 'users', UID_A, 'trackedSessions', 's-1'), { status: 'done' }),
+    );
+  });
+
+  it('allows the owner to delete their own tracked session', async () => {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore(), 'users', UID_A, 'trackedSessions', 's-1'), validSession);
+    });
+    await assertSucceeds(deleteDoc(doc(aliceDb(), 'users', UID_A, 'trackedSessions', 's-1')));
+  });
+
+  it('denies another user deleting a foreign tracked session', async () => {
+    await testEnv.withSecurityRulesDisabled(async (context) => {
+      await setDoc(doc(context.firestore(), 'users', UID_A, 'trackedSessions', 's-1'), validSession);
+    });
+    await assertFails(deleteDoc(doc(bobDb(), 'users', UID_A, 'trackedSessions', 's-1')));
+  });
+});
+
 describe('/users/{uid}/machineStats', () => {
   beforeEach(async () => {
     await testEnv.withSecurityRulesDisabled(async (context) => {

@@ -1,5 +1,7 @@
 // Next few training-focus sessions (rest days excluded). Each row navigates
-// to /session/:date; a "See full month" link opens MonthAgenda.
+// to /day/:date (the day-detail view, which resolves to whatever mix of
+// tracked sessions/suggestion that date has); a "See full month" link opens
+// the promoted /calendar route.
 import { useNavigate } from "react-router-dom";
 import type { Session } from "../../lib/types";
 import { FOCUS_LABELS } from "./planFocus";
@@ -38,7 +40,7 @@ export default function UpcomingList({ sessions, today, onOpenMonth, limit = 5 }
               <button
                 type="button"
                 className="upcoming-list-row"
-                onClick={() => navigate(`/session/${session.date}`)}
+                onClick={() => navigate(`/day/${session.date}`)}
               >
                 <span className="upcoming-list-date">{shortDateLabel(session.date)}</span>
                 <span className="upcoming-list-main">

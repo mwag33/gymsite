@@ -22,6 +22,14 @@ firebase-export-*/
 # is the actual served copy that's tracked; this is just the original folder.
 /machine_gallery/
 
+# Source drop for the hero/focus-category photos - frontend/public/hero.webp
+# and frontend/public/focus-images/ are the actual compressed, served copies
+# that are tracked; these are just the original multi-MB source files.
+/images/
+
+# Design reference mockups, never meant to ship - see the design plan.
+/Inspiration/
+
 # Editor / OS
 .DS_Store
 .vscode/*

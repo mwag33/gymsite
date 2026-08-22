@@ -8,6 +8,7 @@ import type { ReactNode } from "react";
 import type { DaySessionView } from "./mergeSessions";
 import { FOCUS_LABELS } from "./planFocus";
 import { FocusBadge, FocusIcon } from "./focusIcons";
+import { FOCUS_IMAGE } from "./focusImages";
 
 interface TodayHeroProps {
   today: DaySessionView;
@@ -60,8 +61,10 @@ function renderContent(today: DaySessionView, navigate: (path: string) => void):
   if (tracked.length === 1) {
     const session = tracked[0];
     const exerciseNames = session.exercises.slice(0, 3).map((ex) => ex.name);
+    const image = FOCUS_IMAGE[session.focus];
     return (
       <div className="today-hero card">
+        {image && <img src={image} alt="" className="today-hero-image" />}
         <div className="today-hero-header">
           <FocusIcon focus={session.focus} width={36} height={36} />
           <div className="today-hero-heading">
@@ -86,8 +89,10 @@ function renderContent(today: DaySessionView, navigate: (path: string) => void):
   // tracked.length === 0 but there's a non-rest unaccepted suggestion.
   const suggestion = unacceptedSuggestion!;
   const exerciseNames = (suggestion.exercises ?? []).slice(0, 3).map((ex) => ex.name);
+  const suggestionImage = FOCUS_IMAGE[suggestion.focus];
   return (
     <div className="today-hero card">
+      {suggestionImage && <img src={suggestionImage} alt="" className="today-hero-image" />}
       <div className="today-hero-header">
         <FocusBadge session={suggestion} size={36} />
         <div className="today-hero-heading">
@@ -141,6 +146,14 @@ export default function TodayHero({ today }: TodayHeroProps) {
           gap: var(--space-3);
           text-align: left;
           cursor: pointer;
+        }
+        .today-hero-image {
+          display: block;
+          width: calc(100% + var(--space-4) * 2);
+          height: 120px;
+          object-fit: cover;
+          margin: calc(var(--space-4) * -1) calc(var(--space-4) * -1) var(--space-3);
+          border-radius: var(--radius-lg) var(--radius-lg) 0 0;
         }
         .today-hero-header {
           display: flex;

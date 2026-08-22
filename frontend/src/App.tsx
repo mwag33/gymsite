@@ -1,5 +1,5 @@
 import { lazy, Suspense } from "react";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AuthProvider } from "./contexts/AuthContext";
 import { ActiveGymProvider } from "./contexts/ActiveGymContext";
 import { ProtectedRoute } from "./components/ProtectedRoute";
@@ -17,7 +17,6 @@ const HomePage = lazy(() => import("./pages/home/HomePage"));
 const LogWorkoutPage = lazy(() => import("./pages/log/LogWorkoutPage"));
 const DayDetailPage = lazy(() => import("./pages/session/DayDetailPage"));
 const SessionTrackerPage = lazy(() => import("./pages/session/SessionTrackerPage"));
-const CalendarPage = lazy(() => import("./pages/progress/CalendarPage"));
 const GymPage = lazy(() => import("./pages/gym/GymPage"));
 const ProgressPage = lazy(() => import("./pages/progress/ProgressPage"));
 const ProfilePage = lazy(() => import("./pages/profile/ProfilePage"));
@@ -46,7 +45,9 @@ export default function App() {
                     <Route path="/log/:date" element={<LogWorkoutPage />} />
                     <Route path="/day/:date" element={<DayDetailPage />} />
                     <Route path="/session/:sessionId" element={<SessionTrackerPage />} />
-                    <Route path="/calendar" element={<CalendarPage />} />
+                    {/* MonthAgenda is now inline on Home (the IA collapse) - redirect
+                        rather than 404 for any bookmarked/history /calendar URL. */}
+                    <Route path="/calendar" element={<Navigate to="/" replace />} />
                     <Route path="/progress" element={<ProgressPage />} />
                     <Route path="/gym" element={<GymPage />} />
                     <Route path="/profile" element={<ProfilePage />} />

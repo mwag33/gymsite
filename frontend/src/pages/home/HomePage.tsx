@@ -1,14 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { collection, doc, onSnapshot } from "firebase/firestore";
 import { db } from "../../lib/firebase";
 import { useAuth } from "../../contexts/AuthContext";
 import { useActiveGym } from "../../contexts/ActiveGymContext";
 import { generateExercisesForWeek } from "../../lib/callables";
-import AdherenceMeter from "../../components/AdherenceMeter";
+import PlateRing from "../../components/PlateRing";
 import TodayHero from "../../features/plan/TodayHero";
-import DateStrip from "../../features/plan/DateStrip";
-import UpcomingList from "../../features/plan/UpcomingList";
+import MonthAgenda from "../../features/plan/MonthAgenda";
 import { mergeDaySessions } from "../../features/plan/mergeSessions";
 import { addDaysToKey, toLocalDateKey } from "../../features/plan/planDate";
 import type { PlanDoc, TrackedSession } from "../../lib/types";
@@ -16,13 +14,15 @@ import type { PlanDoc, TrackedSession } from "../../lib/types";
 // A week is "close enough to running out" once the exercise horizon is
 // within this many days of today — matches the plan's rolling-fill trigger.
 const HORIZON_REFILL_THRESHOLD_DAYS = 7;
-// How many days of the rolling window the date strip shows at once.
-const DATE_STRIP_WINDOW_DAYS = 7;
+// Rolling 7-day window the hero adherence ring reports against - kept
+// intentionally weekly/pace-focused even though the month grid below it
+// covers the whole month; two different questions, both useful. See the
+// design plan's "adherence scope" decision.
+const ADHERENCE_WINDOW_DAYS = 7;
 
 export default function HomePage() {
   const { user, profile } = useAuth();
   const { activeGym } = useActiveGym();
-  const navigate = useNavigate();
   const [plan, setPlan] = useState<PlanDoc | null | undefined>(undefined);
   const [trackedSessions, setTrackedSessions] = useState<TrackedSession[]>([]);
   const horizonRefillRequested = useRef<string | null>(null);
@@ -75,33 +75,63 @@ export default function HomePage() {
   }
 
   const todayView = mergeDaySessions(plan.sessions, trackedSessions, today);
-  const windowEnd = addDaysToKey(today, DATE_STRIP_WINDOW_DAYS);
+  const windowEnd = addDaysToKey(today, ADHERENCE_WINDOW_DAYS);
   const stripSessions = plan.sessions.filter((s) => s.date >= today && s.date <= windowEnd);
 
   const trainingThisWindow = stripSessions.filter((s) => s.focus !== "rest");
   const completedThisWindow = trainingThisWindow.filter(
     (s) => s.status === "done" || s.status === "partial"
   ).length;
+  const weekTarget = plan.frequencyPerWeek || trainingThisWindow.length || null;
 
   return (
     <div className="home-page">
-      <AdherenceMeter
-        compact
-        completed={completedThisWindow}
-        target={plan.frequencyPerWeek || trainingThisWindow.length || null}
-      />
+      <div className="home-adherence">
+        <PlateRing
+          size={56}
+          fillPercent={weekTarget ? completedThisWindow / weekTarget : 0}
+          label={weekTarget ? `${completedThisWindow}/${weekTarget}` : completedThisWindow}
+        />
+        <div>
+          <p className="home-adherence-eyebrow">This week</p>
+          <p className="home-adherence-headline">
+            {weekTarget
+              ? `${completedThisWindow} of ${weekTarget} sessions`
+              : `${completedThisWindow} session${completedThisWindow === 1 ? "" : "s"} logged`}
+          </p>
+        </div>
+      </div>
 
       <TodayHero today={todayView} />
 
-      <DateStrip sessions={stripSessions} today={today} />
-
-      <UpcomingList sessions={plan.sessions} today={today} onOpenMonth={() => navigate("/calendar")} />
+      <MonthAgenda
+        sessions={plan.sessions}
+        trackedSessions={trackedSessions}
+        today={today}
+        weekStartsOn={profile?.settings?.weekStartsOn ?? 1}
+      />
 
       <style>{`
         .home-page {
           display: flex;
           flex-direction: column;
           gap: var(--space-4);
+        }
+        .home-adherence {
+          display: flex;
+          align-items: center;
+          gap: var(--space-3);
+        }
+        .home-adherence-eyebrow {
+          font-size: 12px;
+          font-weight: 600;
+          text-transform: uppercase;
+          letter-spacing: 0.04em;
+          color: var(--text-muted);
+        }
+        .home-adherence-headline {
+          font-size: 16px;
+          font-weight: 600;
         }
       `}</style>
     </div>

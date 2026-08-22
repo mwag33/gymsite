@@ -53,16 +53,8 @@ export default function SignIn() {
   }
 
   return (
-    <div
-      style={{
-        minHeight: "100dvh",
-        display: "flex",
-        flexDirection: "column",
-        justifyContent: "center",
-        alignItems: "center",
-        padding: "var(--space-5)",
-      }}
-    >
+    <div className="signin-page">
+      <div className="signin-hero" />
       <div className="card" style={{ width: "100%", maxWidth: 380 }}>
         <h1 style={{ fontSize: 22, marginBottom: "var(--space-1)" }}>
           {mode === "signup" ? "Create your account" : "Welcome back"}
@@ -147,6 +139,38 @@ export default function SignIn() {
             : "New here? Create an account"}
         </button>
       </div>
+
+      <style>{`
+        .signin-page {
+          min-height: 100dvh;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          padding: var(--space-5);
+          gap: var(--space-5);
+        }
+        .signin-hero {
+          width: 100%;
+          max-width: 380px;
+          height: 30vh;
+          min-height: 160px;
+          max-height: 260px;
+          margin-top: calc(var(--space-5) * -1);
+          background-image:
+            linear-gradient(to top, var(--bg) 0%, rgba(18, 18, 20, 0.05) 55%, rgba(255, 90, 54, 0.18) 100%),
+            url("/hero.webp");
+          background-size: cover;
+          background-position: center;
+          border-radius: 0 0 var(--radius-lg) var(--radius-lg);
+          flex-shrink: 0;
+        }
+        @media (min-width: 400px) {
+          .signin-hero {
+            border-radius: var(--radius-lg);
+            margin-top: 0;
+          }
+        }
+      `}</style>
     </div>
   );
 }

@@ -15,7 +15,7 @@ import { db } from "../../lib/firebase";
 import { useAuth } from "../../contexts/AuthContext";
 import type { Machine, MachineCategory, PlanDoc, WorkoutLog } from "../../lib/types";
 import { MACHINE_CATEGORIES } from "../../lib/types";
-import AdherenceMeter from "../../components/AdherenceMeter";
+import PlateRing from "../../components/PlateRing";
 import { addDays, computeStreak, startOfWeek, toDate } from "./progressUtils";
 
 // Bound how far back we scan workoutLogs for the category breakdown — recent
@@ -171,7 +171,18 @@ export default function OverviewStats() {
     <div className="overview-stats">
       <div className="card overview-adherence">
         <h3>This week</h3>
-        <AdherenceMeter completed={sessionsThisWeek} target={weekTarget} />
+        <div className="overview-adherence-ring-row">
+          <PlateRing
+            size={84}
+            fillPercent={weekTarget ? sessionsThisWeek / weekTarget : 0}
+            label={weekTarget ? `${sessionsThisWeek}/${weekTarget}` : sessionsThisWeek}
+          />
+          <p className="overview-adherence-headline">
+            {weekTarget
+              ? `${sessionsThisWeek} of ${weekTarget} sessions`
+              : `${sessionsThisWeek} session${sessionsThisWeek === 1 ? "" : "s"} logged`}
+          </p>
+        </div>
         {!hasAnyLogs && (
           <p className="progress-empty-sub">Log your first workout to see progress here.</p>
         )}
@@ -241,6 +252,15 @@ export default function OverviewStats() {
         .overview-streak h3,
         .overview-categories h3 {
           font-size: 15px;
+        }
+        .overview-adherence-ring-row {
+          display: flex;
+          align-items: center;
+          gap: var(--space-4);
+        }
+        .overview-adherence-headline {
+          font-size: 16px;
+          font-weight: 600;
         }
         .overview-adherence-sub {
           font-size: 13px;

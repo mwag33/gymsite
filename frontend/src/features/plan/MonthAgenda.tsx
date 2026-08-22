@@ -1,14 +1,17 @@
-// Compact calendar grid for peeking further into the rolling month: each
-// cell pairs the date number with a small FocusIcon (training-type glyph),
-// matching the icon treatment DateStrip/UpcomingList already use for the
-// weekly view. Aligned to real weekdays (padded with blank leading/trailing
-// cells), colored per merged status (a tracked session overrides the plan
-// suggestion's status - see mergeDaySessions), click navigates to /day/:date.
+// Full month grid, folded directly into HomePage (the app's one "when am I
+// training" surface - see the design plan's IA simplification). Each cell
+// is a small PlateRing (notches=0 - a full plate doesn't read cleanly this
+// small, see PlateRing.tsx) wrapping the date number, plus a tiny FocusIcon
+// badge for training type. Aligned to real weekdays (padded with blank
+// leading/trailing cells), colored per merged status (a tracked session
+// overrides the plan suggestion's status - see mergeDaySessions), click
+// navigates to /day/:date.
 import { useNavigate } from "react-router-dom";
-import type { Session, SessionStatus, TrackedSession } from "../../lib/types";
+import type { Session, TrackedSession } from "../../lib/types";
 import { parseLocalDateKey } from "./planDate";
 import { FocusIcon } from "./focusIcons";
 import { mergeDaySessions, summarizeDayStatus } from "./mergeSessions";
+import PlateRing from "../../components/PlateRing";
 
 interface MonthAgendaProps {
   sessions: Session[];
@@ -18,13 +21,20 @@ interface MonthAgendaProps {
   onClose?: () => void;
 }
 
-const STATUS_CLASS: Record<SessionStatus, string> = {
-  upcoming: "month-agenda-cell-upcoming",
-  done: "month-agenda-cell-done",
-  partial: "month-agenda-cell-done",
-  skipped: "month-agenda-cell-missed",
-  swapped: "month-agenda-cell-swapped",
-};
+function cellRing(status: ReturnType<typeof summarizeDayStatus>): { fillPercent: number; color: string } {
+  switch (status) {
+    case "done":
+      return { fillPercent: 1, color: "var(--success)" };
+    case "in_progress":
+    case "partial":
+    case "swapped":
+      return { fillPercent: 0.5, color: "var(--accent)" };
+    case "skipped":
+      return { fillPercent: 1, color: "var(--danger)" };
+    default:
+      return { fillPercent: 0, color: "var(--border)" };
+  }
+}
 
 export default function MonthAgenda({
   sessions,
@@ -74,27 +84,24 @@ export default function MonthAgenda({
           const isRest = session.focus === "rest";
           const view = mergeDaySessions(sessions, trackedSessions, session.date);
           const mergedStatus = summarizeDayStatus(view);
-          const statusClass =
-            mergedStatus === "done"
-              ? "month-agenda-cell-done"
-              : mergedStatus === "in_progress"
-                ? "month-agenda-cell-upcoming"
-                : mergedStatus
-                  ? STATUS_CLASS[mergedStatus]
-                  : "";
+          const ring = cellRing(isRest ? null : mergedStatus);
+          const dayNum = parseLocalDateKey(session.date).getDate();
           return (
             <button
               key={session.id}
               type="button"
-              className={
-                "month-agenda-cell" +
-                (isToday ? " month-agenda-cell-today" : "") +
-                (!isRest ? ` ${statusClass}` : "")
-              }
+              className={"month-agenda-cell" + (isToday ? " month-agenda-cell-today" : "")}
               onClick={() => navigate(`/day/${session.date}`)}
             >
-              <span className="month-agenda-cell-num tnum">{parseLocalDateKey(session.date).getDate()}</span>
-              {!isRest && <FocusIcon focus={session.focus} width={12} height={12} className="month-agenda-cell-icon" />}
+              <PlateRing
+                size={34}
+                notches={0}
+                fillPercent={ring.fillPercent}
+                color={ring.color}
+                holeColor="var(--surface-raised)"
+                label={<span className="month-agenda-cell-num tnum">{dayNum}</span>}
+              />
+              {!isRest && <FocusIcon focus={session.focus} width={11} height={11} className="month-agenda-cell-icon" />}
             </button>
           );
         })}
@@ -134,43 +141,25 @@ export default function MonthAgenda({
           flex-direction: column;
           align-items: center;
           justify-content: center;
-          gap: 2px;
+          gap: 1px;
           border-radius: var(--radius-sm);
-          border: 1px solid var(--border);
-          background: var(--surface-raised);
+          border: 1px solid transparent;
+          background: transparent;
           color: var(--text-muted);
           cursor: pointer;
         }
         .month-agenda-cell-num {
           font-size: 11px;
+          font-weight: 600;
         }
         .month-agenda-cell-icon {
           opacity: 0.85;
         }
         .month-agenda-cell-empty {
-          border-color: transparent;
-          background: transparent;
           cursor: default;
         }
         .month-agenda-cell-today {
           border-color: var(--accent);
-          font-weight: 700;
-          color: var(--text);
-        }
-        .month-agenda-cell-done {
-          background: color-mix(in srgb, var(--success) 18%, var(--surface-raised));
-          color: var(--text);
-        }
-        .month-agenda-cell-missed {
-          background: color-mix(in srgb, var(--danger) 18%, var(--surface-raised));
-          color: var(--text);
-        }
-        .month-agenda-cell-swapped {
-          border-color: var(--accent);
-          color: var(--text);
-        }
-        .month-agenda-cell-upcoming {
-          color: var(--text);
         }
       `}</style>
     </div>

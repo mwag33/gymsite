@@ -13,8 +13,11 @@ import type { Machine, MachineStats, TrackedExercise } from "../../lib/types";
 import { findCatalogMachine } from "../../lib/machineCatalog";
 import MachineIcon from "../../components/MachineIcon";
 import MachinePicker from "../../components/MachinePicker";
+import PlateRing from "../../components/PlateRing";
+import Sheet from "../../components/Sheet";
 import SetEditor, { summarizeSets } from "../log/SetEditor";
 import { useAutosaveTrackedSession } from "../../features/tracking/useAutosaveTrackedSession";
+import { computeTrackedSessionStatus } from "../../features/tracking/trackedSessionActions";
 import { weekdayLabel, shortDateLabel } from "../../features/plan/planDate";
 import { FOCUS_LABELS } from "../../features/plan/planFocus";
 import { FocusIcon } from "../../features/plan/focusIcons";
@@ -103,6 +106,12 @@ export default function SessionTrackerPage() {
     );
   }
 
+  // Computed against local `exercises` state, not `session.status` from
+  // Firestore - the latter lags the user's last tap by the autosave debounce
+  // plus a round-trip echo, which would make PlateRing's completion flash
+  // feel broken instead of satisfying. See computeTrackedSessionStatus.
+  const isDoneLocally = computeTrackedSessionStatus(exercises) === "done";
+
   function toggleSkip(ex: TrackedExercise) {
     updateExercises((prev) =>
       patchExercise(prev, ex.id, {
@@ -158,9 +167,18 @@ export default function SessionTrackerPage() {
             <h1 className="tracker-focus">{FOCUS_LABELS[session.focus] ?? session.focus}</h1>
           </div>
         </div>
-        <span className={`tracker-badge tracker-badge-${session.status}`}>
-          {session.status === "done" ? "Done" : "In progress"}
-        </span>
+        <div className="tracker-status">
+          <PlateRing
+            size={40}
+            fillPercent={
+              exercises.length > 0 ? exercises.filter((ex) => ex.status !== "pending").length / exercises.length : 0
+            }
+            color={isDoneLocally ? "var(--success)" : "var(--accent)"}
+            label={isDoneLocally ? "✓" : undefined}
+            celebrate={isDoneLocally}
+          />
+          <span className="tracker-status-label">{isDoneLocally ? "Done" : "In progress"}</span>
+        </div>
       </div>
 
       {exercises.length === 0 ? (
@@ -218,8 +236,8 @@ export default function SessionTrackerPage() {
         </div>
       )}
 
-      {expandedId &&
-        (() => {
+      <Sheet open={Boolean(expandedId)} onClose={() => setExpandedId(null)}>
+        {(() => {
           const ex = exercises.find((e) => e.id === expandedId);
           if (!ex) return null;
           return (
@@ -245,9 +263,16 @@ export default function SessionTrackerPage() {
             </div>
           );
         })()}
+      </Sheet>
 
-      {pickerMode && session.gymId && (
-        <div className="tracker-picker-overlay">
+      <Sheet
+        open={Boolean(pickerMode && session.gymId)}
+        onClose={() => {
+          setPickerMode(null);
+          setPickerExerciseId(null);
+        }}
+      >
+        {pickerMode && session.gymId && (
           <MachinePicker
             gymId={session.gymId}
             uid={user!.uid}
@@ -259,8 +284,8 @@ export default function SessionTrackerPage() {
               setPickerExerciseId(null);
             }}
           />
-        </div>
-      )}
+        )}
+      </Sheet>
 
       <style>{`
         .tracker-page {
@@ -288,19 +313,18 @@ export default function SessionTrackerPage() {
           font-size: 24px;
           font-weight: 700;
         }
-        .tracker-badge {
+        .tracker-status {
           flex-shrink: 0;
-          font-size: 12px;
-          font-weight: 600;
-          padding: var(--space-1) var(--space-3);
-          border-radius: 999px;
-          background: var(--surface-raised);
-          border: 1px solid var(--border);
-          color: var(--text-muted);
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: var(--space-1);
         }
-        .tracker-badge-done {
-          color: var(--success);
-          border-color: var(--success);
+        .tracker-status-label {
+          font-size: 11px;
+          font-weight: 600;
+          color: var(--text-muted);
+          white-space: nowrap;
         }
         .tracker-empty {
           color: var(--text-muted);
@@ -382,16 +406,6 @@ export default function SessionTrackerPage() {
           cursor: pointer;
           padding: 0;
         }
-        .tracker-picker-overlay {
-          position: fixed;
-          inset: 0;
-          z-index: 20;
-          background: rgba(0, 0, 0, 0.4);
-          display: flex;
-          align-items: flex-end;
-          padding: var(--space-4);
-        }
-
         /* Shared classes for the borrowed-style children SetEditor and
            MachinePicker (neither ships its own <style> - see their file
            comments). This page is now their only mount point. */
@@ -446,8 +460,6 @@ export default function SessionTrackerPage() {
           flex-direction: column;
           gap: var(--space-3);
           width: 100%;
-          max-height: 80vh;
-          overflow-y: auto;
         }
         .machine-picker-row-main {
           display: flex;

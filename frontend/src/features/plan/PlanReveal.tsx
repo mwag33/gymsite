@@ -9,7 +9,7 @@ interface PlanRevealProps {
   // Onboarding's first-week slice only — never the full 28-day schedule (see
   // OnboardingFlow.tsx's schedule-review/exercise-review phases). Nothing
   // outside onboarding uses this component; Home reads sessions directly via
-  // TodayHero/DateStrip/UpcomingList instead.
+  // TodayHero/MonthAgenda instead.
   sessions: Session[];
   onAccept?: () => void;
   onAdjust?: () => void;

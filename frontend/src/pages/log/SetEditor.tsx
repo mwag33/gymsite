@@ -1,8 +1,11 @@
-// Shared stepper/set-editor, extracted from the former DetailedLogView so
-// both the session-first log flow (SessionLogList) and the catalog fallback
-// (CatalogLogView) use one implementation. Controlled: the caller owns the
-// draft `sets` array and receives updates via `onSetsChange`.
+// Shared stepper/set-editor. Controlled: the caller owns the draft `sets`
+// array and receives updates via `onSetsChange`. Always mounted inside
+// Sheet.tsx (SessionTrackerPage's only consumer), so the stepper buttons'
+// `m.button` below picks up the LazyMotion/domAnimation features from
+// Sheet's provider in the React tree - no LazyMotion wrapper needed here.
+import { m } from "motion/react";
 import type { MachineStats, SetEntry } from "../../lib/types";
+import { tapScale, usePrefersReducedMotion } from "../../lib/motion";
 
 const WEIGHT_STEP = 2.5;
 const REPS_STEP = 1;
@@ -34,6 +37,9 @@ export default function SetEditor({
   onClose,
   error,
 }: SetEditorProps) {
+  const reducedMotion = usePrefersReducedMotion();
+  const tapFeedback = reducedMotion ? undefined : tapScale;
+
   function adjustSet(index: number, field: "weightKg" | "reps", delta: number) {
     onSetsChange(
       sets.map((s, i) => {
@@ -85,22 +91,22 @@ export default function SetEditor({
           <div key={i} className="log-set-row">
             <span className="log-set-index">Set {i + 1}</span>
             <div className="log-stepper">
-              <button type="button" onClick={() => adjustSet(i, "weightKg", -WEIGHT_STEP)}>
+              <m.button type="button" whileTap={tapFeedback} onClick={() => adjustSet(i, "weightKg", -WEIGHT_STEP)}>
                 &minus;
-              </button>
+              </m.button>
               <span className="tnum log-stepper-value">{set.weightKg} kg</span>
-              <button type="button" onClick={() => adjustSet(i, "weightKg", WEIGHT_STEP)}>
+              <m.button type="button" whileTap={tapFeedback} onClick={() => adjustSet(i, "weightKg", WEIGHT_STEP)}>
                 +
-              </button>
+              </m.button>
             </div>
             <div className="log-stepper">
-              <button type="button" onClick={() => adjustSet(i, "reps", -REPS_STEP)}>
+              <m.button type="button" whileTap={tapFeedback} onClick={() => adjustSet(i, "reps", -REPS_STEP)}>
                 &minus;
-              </button>
+              </m.button>
               <span className="tnum log-stepper-value">{set.reps} reps</span>
-              <button type="button" onClick={() => adjustSet(i, "reps", REPS_STEP)}>
+              <m.button type="button" whileTap={tapFeedback} onClick={() => adjustSet(i, "reps", REPS_STEP)}>
                 +
-              </button>
+              </m.button>
             </div>
             {sets.length > 1 && (
               <button

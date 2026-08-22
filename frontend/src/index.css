@@ -1,21 +1,16 @@
+/*
+  Design system: "Iron & Volt". The subject is a gym, not a generic
+  dashboard - chalk, plates, the click of a pin in a weight stack. Coral is
+  the primary voice (CTAs, primary state); volt is a reserved, theme-
+  independent secondary reserved *only* for motion/celebration moments (a
+  finished session, a streak, a new PR) - see PlateRing.tsx - never used as
+  decoration, so it stays electric instead of becoming wallpaper.
+*/
 :root {
   color-scheme: light;
 
-  --bg: #f5f6fb;
-  --surface: #ffffff;
-  --surface-raised: #ffffff;
-  --border: #eaecf3;
-  --text: #15161c;
-  --text-muted: #6b6d7a;
-  --accent: #e8532a;
-  --accent-text: #ffffff;
-  --accent-surface: rgba(232, 83, 42, 0.08);
-  --danger: #e5484d;
-  --success: #1fa971;
-
-  --shadow-sm: 0 1px 2px rgba(20, 21, 30, 0.04), 0 1px 1px rgba(20, 21, 30, 0.03);
-  --shadow-md: 0 8px 24px rgba(20, 21, 30, 0.06), 0 2px 6px rgba(20, 21, 30, 0.04);
-  --shadow-lg: 0 16px 40px rgba(20, 21, 30, 0.09), 0 4px 10px rgba(20, 21, 30, 0.05);
+  --volt: #c6ff3d;
+  --volt-text: #121214;
 
   --space-1: 4px;
   --space-2: 8px;
@@ -33,6 +28,23 @@
   --tab-bar-height: 64px;
 
   --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-display: "Space Grotesk", var(--font-sans);
+
+  --bg: #faf7f2;
+  --surface: #ffffff;
+  --surface-raised: #fff6ef;
+  --border: #ece6da;
+  --text: #121214;
+  --text-muted: #6e6a62;
+  --accent: #ff5a36;
+  --accent-text: #ffffff;
+  --accent-surface: rgba(255, 90, 54, 0.1);
+  --danger: #ff4162;
+  --success: #2fd180;
+
+  --shadow-sm: 0 1px 2px rgba(18, 18, 20, 0.04), 0 1px 1px rgba(18, 18, 20, 0.03);
+  --shadow-md: 0 8px 24px rgba(18, 18, 20, 0.07), 0 2px 6px rgba(18, 18, 20, 0.04);
+  --shadow-lg: 0 20px 48px rgba(18, 18, 20, 0.11), 0 6px 12px rgba(18, 18, 20, 0.06);
 }
 
 /* OS-driven default. An explicit override below wins regardless of OS
@@ -44,60 +56,60 @@
 @media (prefers-color-scheme: dark) {
   :root {
     color-scheme: dark;
-    --bg: #14151a;
-    --surface: #1c1e24;
-    --surface-raised: #24262e;
-    --border: #33353f;
-    --text: #f4f4f6;
-    --text-muted: #9a9ca6;
-    --accent: #ff6a3d;
+    --bg: #121214;
+    --surface: #1b1b1f;
+    --surface-raised: #23242a;
+    --border: #2e2f36;
+    --text: #f7f5f0;
+    --text-muted: #9b9890;
+    --accent: #ff6b4a;
     --accent-text: #1a0e08;
-    --accent-surface: rgba(255, 106, 61, 0.12);
-    --danger: #ff5d5d;
-    --success: #3ddc84;
+    --accent-surface: rgba(255, 107, 74, 0.14);
+    --danger: #ff5470;
+    --success: #35df8c;
 
-    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3), 0 1px 1px rgba(0, 0, 0, 0.24);
-    --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.36), 0 2px 6px rgba(0, 0, 0, 0.28);
-    --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.44), 0 4px 10px rgba(0, 0, 0, 0.32);
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.32), 0 1px 1px rgba(0, 0, 0, 0.26);
+    --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.4), 0 2px 6px rgba(0, 0, 0, 0.3);
+    --shadow-lg: 0 20px 48px rgba(0, 0, 0, 0.5), 0 6px 12px rgba(0, 0, 0, 0.36);
   }
 }
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bg: #14151a;
-  --surface: #1c1e24;
-  --surface-raised: #24262e;
-  --border: #33353f;
-  --text: #f4f4f6;
-  --text-muted: #9a9ca6;
-  --accent: #ff6a3d;
+  --bg: #121214;
+  --surface: #1b1b1f;
+  --surface-raised: #23242a;
+  --border: #2e2f36;
+  --text: #f7f5f0;
+  --text-muted: #9b9890;
+  --accent: #ff6b4a;
   --accent-text: #1a0e08;
-  --accent-surface: rgba(255, 106, 61, 0.12);
-  --danger: #ff5d5d;
-  --success: #3ddc84;
+  --accent-surface: rgba(255, 107, 74, 0.14);
+  --danger: #ff5470;
+  --success: #35df8c;
 
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3), 0 1px 1px rgba(0, 0, 0, 0.24);
-  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.36), 0 2px 6px rgba(0, 0, 0, 0.28);
-  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.44), 0 4px 10px rgba(0, 0, 0, 0.32);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.32), 0 1px 1px rgba(0, 0, 0, 0.26);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.4), 0 2px 6px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 20px 48px rgba(0, 0, 0, 0.5), 0 6px 12px rgba(0, 0, 0, 0.36);
 }
 
 :root[data-theme="light"] {
   color-scheme: light;
-  --bg: #f5f6fb;
+  --bg: #faf7f2;
   --surface: #ffffff;
-  --surface-raised: #ffffff;
-  --border: #eaecf3;
-  --text: #15161c;
-  --text-muted: #6b6d7a;
-  --accent: #e8532a;
+  --surface-raised: #fff6ef;
+  --border: #ece6da;
+  --text: #121214;
+  --text-muted: #6e6a62;
+  --accent: #ff5a36;
   --accent-text: #ffffff;
-  --accent-surface: rgba(232, 83, 42, 0.08);
-  --danger: #e5484d;
-  --success: #1fa971;
+  --accent-surface: rgba(255, 90, 54, 0.1);
+  --danger: #ff4162;
+  --success: #2fd180;
 
-  --shadow-sm: 0 1px 2px rgba(20, 21, 30, 0.04), 0 1px 1px rgba(20, 21, 30, 0.03);
-  --shadow-md: 0 8px 24px rgba(20, 21, 30, 0.06), 0 2px 6px rgba(20, 21, 30, 0.04);
-  --shadow-lg: 0 16px 40px rgba(20, 21, 30, 0.09), 0 4px 10px rgba(20, 21, 30, 0.05);
+  --shadow-sm: 0 1px 2px rgba(18, 18, 20, 0.04), 0 1px 1px rgba(18, 18, 20, 0.03);
+  --shadow-md: 0 8px 24px rgba(18, 18, 20, 0.07), 0 2px 6px rgba(18, 18, 20, 0.04);
+  --shadow-lg: 0 20px 48px rgba(18, 18, 20, 0.11), 0 6px 12px rgba(18, 18, 20, 0.06);
 }
 
 * {
@@ -120,16 +132,21 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
-/* Tabular figures wherever numbers appear (weights, reps, stats) so they don't jitter. */
+/* Tabular figures wherever numbers appear (weights, reps, stats, streaks) so
+   they don't jitter - and set in the display face, since a number is the
+   most characteristic "hero" content this app has (a PR, a streak, a
+   rep count) and deserves the same weight as a headline. */
 .tnum {
   font-variant-numeric: tabular-nums;
+  font-family: var(--font-display);
 }
 
 h1,
 h2,
 h3 {
   margin: 0;
-  font-weight: 600;
+  font-family: var(--font-display);
+  font-weight: 700;
   letter-spacing: -0.01em;
 }
 
@@ -158,6 +175,32 @@ textarea {
   border-radius: var(--radius-lg);
   padding: var(--space-4);
   box-shadow: var(--shadow-sm);
+}
+
+/* PlateRing.tsx - shared here rather than in an embedded <style>, since it's
+   instantiated dozens of times in one render (MonthAgenda's full month
+   grid) and duplicating this into the DOM per instance would be wasteful. */
+.plate-ring {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.plate-ring-label {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  color: var(--text);
+}
+.plate-ring-flash {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid var(--volt);
+  pointer-events: none;
 }
 
 .btn {

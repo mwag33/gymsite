@@ -18,6 +18,7 @@ import { EDITABLE_FOCUS_OPTIONS, FOCUS_LABELS } from "../../features/plan/planFo
 import { FocusIcon } from "../../features/plan/focusIcons";
 import AdjustmentBanner from "../../features/plan/AdjustmentBanner";
 import SessionEditor from "../../features/plan/SessionEditor";
+import PlateRing from "../../components/PlateRing";
 import { mergeDaySessions } from "../../features/plan/mergeSessions";
 import { acceptPlanSession, createAdHocTrackedSession } from "../../features/tracking/trackedSessionActions";
 import { updateSession, regenerateSessionExercises } from "../../lib/callables";
@@ -149,9 +150,19 @@ export default function DayDetailPage() {
               {session.exercises.length} exercise{session.exercises.length === 1 ? "" : "s"}
             </span>
           </div>
-          <span className={`day-detail-badge day-detail-badge-${session.status}`}>
-            {TRACKED_STATUS_LABEL[session.status]}
-          </span>
+          <div className="day-detail-status">
+            <PlateRing
+              size={36}
+              fillPercent={
+                session.exercises.length > 0
+                  ? session.exercises.filter((ex) => ex.status !== "pending").length / session.exercises.length
+                  : 0
+              }
+              color={session.status === "done" ? "var(--success)" : "var(--accent)"}
+              label={session.status === "done" ? "✓" : undefined}
+            />
+            <span className="day-detail-status-label">{TRACKED_STATUS_LABEL[session.status]}</span>
+          </div>
         </button>
       ))}
 
@@ -256,19 +267,18 @@ export default function DayDetailPage() {
           font-size: 12px;
           color: var(--text-muted);
         }
-        .day-detail-badge {
+        .day-detail-status {
           flex-shrink: 0;
-          font-size: 12px;
-          font-weight: 600;
-          padding: var(--space-1) var(--space-3);
-          border-radius: 999px;
-          background: var(--surface-raised);
-          border: 1px solid var(--border);
-          color: var(--text-muted);
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: var(--space-1);
         }
-        .day-detail-badge-done {
-          color: var(--success);
-          border-color: var(--success);
+        .day-detail-status-label {
+          font-size: 10px;
+          font-weight: 600;
+          color: var(--text-muted);
+          white-space: nowrap;
         }
         .day-detail-suggestion {
           display: flex;

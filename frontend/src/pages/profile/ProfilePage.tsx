@@ -5,6 +5,7 @@ import { deleteAccount, exportUserData, updateUserSettings } from "../../lib/cal
 import { GOAL_OPTIONS, type UserSettings } from "../../lib/types";
 import { ChevronRightIcon } from "../../components/icons";
 import { LoadingScreen } from "../../components/LoadingScreen";
+import { getStoredTheme, setStoredTheme, type ThemePreference } from "../../lib/theme";
 
 const EXPERIENCE_LABELS: Record<string, string> = {
   new: "New to training",
@@ -23,6 +24,18 @@ export default function ProfilePage() {
   // the Firestore listener in AuthContext confirms it in the background.
   const [settings, setSettings] = useState<UserSettings | null>(profile?.settings ?? null);
   const [fieldStatus, setFieldStatus] = useState<Partial<Record<keyof UserSettings, FieldStatus>>>({});
+
+  // On-device display preference (localStorage, not synced via
+  // updateUserSettings) - see lib/theme.ts.
+  const [theme, setTheme] = useState<ThemePreference>("system");
+  useEffect(() => {
+    setTheme(getStoredTheme());
+  }, []);
+
+  function handleThemeChange(next: ThemePreference) {
+    setTheme(next);
+    setStoredTheme(next);
+  }
 
   useEffect(() => {
     if (profile?.settings) setSettings(profile.settings);
@@ -158,6 +171,26 @@ export default function ProfilePage() {
 
       <section className="card profile-section">
         <h2>Settings</h2>
+
+        <div className="setting-row">
+          <div>
+            <p className="setting-label">Appearance</p>
+            <p className="profile-muted setting-hint">Overrides your device's light/dark setting</p>
+          </div>
+          <div className="segmented" role="group" aria-label="Appearance">
+            {(["system", "light", "dark"] as const).map((option) => (
+              <button
+                key={option}
+                type="button"
+                className={"segmented-option" + (theme === option ? " segmented-option-active" : "")}
+                aria-pressed={theme === option}
+                onClick={() => handleThemeChange(option)}
+              >
+                {option === "system" ? "System" : option === "light" ? "Light" : "Dark"}
+              </button>
+            ))}
+          </div>
+        </div>
 
         <div className="setting-row">
           <div>

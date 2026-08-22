@@ -35,6 +35,12 @@
   --font-sans: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
+/* OS-driven default. An explicit override below wins regardless of OS
+   preference, in either direction - via specificity (0,2,0 vs. this rule's
+   0,1,0), not :not() - lightningcss's minifier chokes on
+   :root:not([data-theme=...]) ("Invalid empty selector"), so specificity
+   does the job instead. See src/lib/theme.ts / ProfilePage's Appearance
+   setting for where data-theme gets set. */
 @media (prefers-color-scheme: dark) {
   :root {
     color-scheme: dark;
@@ -54,6 +60,44 @@
     --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.36), 0 2px 6px rgba(0, 0, 0, 0.28);
     --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.44), 0 4px 10px rgba(0, 0, 0, 0.32);
   }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #14151a;
+  --surface: #1c1e24;
+  --surface-raised: #24262e;
+  --border: #33353f;
+  --text: #f4f4f6;
+  --text-muted: #9a9ca6;
+  --accent: #ff6a3d;
+  --accent-text: #1a0e08;
+  --accent-surface: rgba(255, 106, 61, 0.12);
+  --danger: #ff5d5d;
+  --success: #3ddc84;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3), 0 1px 1px rgba(0, 0, 0, 0.24);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.36), 0 2px 6px rgba(0, 0, 0, 0.28);
+  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.44), 0 4px 10px rgba(0, 0, 0, 0.32);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #f5f6fb;
+  --surface: #ffffff;
+  --surface-raised: #ffffff;
+  --border: #eaecf3;
+  --text: #15161c;
+  --text-muted: #6b6d7a;
+  --accent: #e8532a;
+  --accent-text: #ffffff;
+  --accent-surface: rgba(232, 83, 42, 0.08);
+  --danger: #e5484d;
+  --success: #1fa971;
+
+  --shadow-sm: 0 1px 2px rgba(20, 21, 30, 0.04), 0 1px 1px rgba(20, 21, 30, 0.03);
+  --shadow-md: 0 8px 24px rgba(20, 21, 30, 0.06), 0 2px 6px rgba(20, 21, 30, 0.04);
+  --shadow-lg: 0 16px 40px rgba(20, 21, 30, 0.09), 0 4px 10px rgba(20, 21, 30, 0.05);
 }
 
 * {

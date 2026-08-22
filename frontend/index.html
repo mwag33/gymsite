@@ -5,6 +5,19 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Fitness Plan</title>
+    <script>
+      // Applies a stored manual light/dark override (see src/lib/theme.ts)
+      // before first paint, so there's no flash of the OS-driven theme
+      // before React mounts and reconciles it.
+      (function () {
+        try {
+          var pref = localStorage.getItem("gymsite:themePreference");
+          if (pref === "light" || pref === "dark") {
+            document.documentElement.dataset.theme = pref;
+          }
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

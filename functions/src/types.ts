@@ -152,7 +152,12 @@ export type SessionStatus = "upcoming" | "done" | "partial" | "skipped" | "swapp
 // A session's provenance - lets the engine and any future debugging tell
 // whether a given day came from the AI schedule call, the AI exercise-fill
 // call, the deterministic rebalancer absorbing a miss, or a manual edit.
-export type SessionSource = "ai_schedule" | "ai_exercises" | "deterministic_reschedule" | "manual_edit";
+export type SessionSource =
+  | "ai_schedule"
+  | "ai_exercises"
+  | "deterministic_reschedule"
+  | "manual_edit"
+  | "manual_reschedule";
 
 export interface Session {
   // Stable id, survives reschedules - the FK target for WorkoutLogDoc.plannedSessionId.

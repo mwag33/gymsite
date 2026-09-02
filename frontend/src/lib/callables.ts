@@ -127,6 +127,19 @@ export async function updateSession(input: UpdateSessionInput): Promise<void> {
   await call(input);
 }
 
+export interface MoveSessionInput {
+  sessionId: string;
+  targetDate: string;
+}
+
+/** Proactively moves an upcoming session onto an empty (rest) day; the
+ * source day becomes rest. Rejects if the target day already has its own
+ * session - see functions/src/moveSession.ts. */
+export async function moveSession(input: MoveSessionInput): Promise<void> {
+  const call = httpsCallable<MoveSessionInput, { success: boolean }>(functions, "moveSession");
+  await call(input);
+}
+
 /**
  * Explicit/drift-prompted plan regeneration only — there is no more
  * automatic per-log AI regeneration. Returns the refreshed plan doc.

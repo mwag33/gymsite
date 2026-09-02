@@ -4,7 +4,8 @@
 // the "additive, not a replacement" decision in the project plan — a plan
 // session is never mutated directly; it becomes "accepted" once a tracked
 // session references it via sourcePlanSessionId.
-import type { Session, TrackedSession } from "../../lib/types";
+import type { MachineCategory, Session, TrackedSession } from "../../lib/types";
+import { deriveLoggedCategories } from "./deriveFocus";
 
 export interface DaySessionView {
   date: string;
@@ -35,4 +36,25 @@ export function summarizeDayStatus(view: DaySessionView): TrackedSession["status
     return view.tracked.some((t) => t.status === "done") ? "done" : "in_progress";
   }
   return view.unacceptedSuggestion?.status ?? null;
+}
+
+/** Primary category for a compact glyph (MonthAgenda's 34px cells): once any
+ * tracked session for the day has logged exercises, shows what was actually
+ * done (the first derived category) rather than what the plan suggested -
+ * "actual overrides planned" per the redesign. Falls back to the plan
+ * suggestion's focus, then an untouched tracked session's frozen focus, then
+ * null (rest / nothing scheduled). */
+export function primaryDisplayCategory(view: DaySessionView): MachineCategory | null {
+  for (const t of view.tracked) {
+    const [first] = deriveLoggedCategories(t.exercises);
+    if (first) return first;
+  }
+  if (view.unacceptedSuggestion && view.unacceptedSuggestion.focus !== "rest") {
+    return view.unacceptedSuggestion.focus;
+  }
+  if (view.tracked.length > 0) {
+    const fallback = view.tracked[0].focus;
+    return fallback === "rest" || fallback === "other" ? null : (fallback as MachineCategory);
+  }
+  return null;
 }

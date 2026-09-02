@@ -136,7 +136,12 @@ export interface PlanExercise {
 }
 
 export type SessionStatus = "upcoming" | "done" | "partial" | "skipped" | "swapped";
-export type SessionSource = "ai_schedule" | "ai_exercises" | "deterministic_reschedule" | "manual_edit";
+export type SessionSource =
+  | "ai_schedule"
+  | "ai_exercises"
+  | "deterministic_reschedule"
+  | "manual_edit"
+  | "manual_reschedule";
 
 export interface Session {
   id: string; // stable id, survives reschedules - the FK target for WorkoutLog.plannedSessionId
@@ -174,6 +179,11 @@ export interface PlanDoc {
 // past dates) rather than only AI-generated. See firestore.rules for the
 // validation this trades an append-only guarantee for.
 export type TrackedSessionStatus = "in_progress" | "done";
+// "logged" does NOT imply sets.length > 0: a no-active-gym session (see
+// SessionTrackerPage's gymId === null category-tap flow) logs a bare
+// category with machineId: null and sets: []. Anything computing volume/sets
+// from TrackedExercise must check `status`, not `sets.length`, to know
+// whether an exercise was actually done.
 export type TrackedExerciseStatus = "pending" | "logged" | "skipped";
 
 export interface TrackedExercise {
@@ -184,6 +194,11 @@ export interface TrackedExercise {
   machineCategory: MachineCategory;
   targetSets?: number;
   targetReps?: string;
+  // Carried over from PlanExercise.targetMuscles when accepting a suggestion,
+  // or best-effort from the machine catalog when a machine is picked. Absent
+  // on older docs and on custom machines with no catalog match - display-only,
+  // never required.
+  targetMuscles?: MuscleGroup[];
   sets: SetEntry[];
   status: TrackedExerciseStatus;
 }

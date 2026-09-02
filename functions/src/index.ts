@@ -3,6 +3,7 @@ export { generateSchedule } from "./generateSchedule";
 export { generateExercisesForWeek } from "./generateExercisesForWeek";
 export { regenerateSessionExercises } from "./regenerateSessionExercises";
 export { updateSession } from "./updateSession";
+export { moveSession } from "./moveSession";
 export { regeneratePlan } from "./regeneratePlan";
 export { planDailySweep } from "./planDailySweep";
 export { onWorkoutLogWritten } from "./onWorkoutLogWritten";

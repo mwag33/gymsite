@@ -3,7 +3,7 @@
 // firestore.rules for the data model + the append-only-tradeoff rationale).
 import { addDoc, collection, doc, serverTimestamp, setDoc, Timestamp, updateDoc } from "firebase/firestore";
 import { db } from "../../lib/firebase";
-import type { ExerciseEntry, PlanExercise, Session, TrackedExercise, TrackedSession, TrackedSessionStatus } from "../../lib/types";
+import type { ExerciseEntry, MachineCategory, PlanExercise, Session, TrackedExercise, TrackedSession, TrackedSessionStatus } from "../../lib/types";
 
 function planExerciseToTracked(ex: PlanExercise): TrackedExercise {
   return {
@@ -14,6 +14,7 @@ function planExerciseToTracked(ex: PlanExercise): TrackedExercise {
     machineCategory: ex.machineCategory,
     targetSets: ex.sets,
     targetReps: ex.reps,
+    targetMuscles: ex.targetMuscles,
     sets: [],
     status: "pending",
   };
@@ -71,10 +72,12 @@ export async function createAdHocTrackedSession(
   return ref.id;
 }
 
-/** "done" once every exercise is either skipped or has at least one logged set - no explicit "finish" action needed. */
+/** "done" once every exercise is either skipped or resolved (a logged set, or
+ * a no-machine category tap logged directly with no sets - see the gymId ===
+ * null path in SessionTrackerPage) - no explicit "finish" action needed. */
 export function computeTrackedSessionStatus(exercises: TrackedExercise[]): TrackedSessionStatus {
   if (exercises.length === 0) return "in_progress";
-  const allResolved = exercises.every((ex) => ex.status === "skipped" || ex.sets.length > 0);
+  const allResolved = exercises.every((ex) => ex.status === "skipped" || ex.status === "logged");
   return allResolved ? "done" : "in_progress";
 }
 
@@ -90,8 +93,35 @@ function toExerciseEntries(session: Pick<TrackedSession, "gymId" | "exercises">)
  * (adherence marking/rebalancing + machineStats aggregation + the daily
  * sweep's upcoming/skipped resolution) keeps working exactly as before.
  * Called from useAutosaveTrackedSession on unmount, not per keystroke.
+ *
+ * `gymId === null` sessions (no active gym - see SessionTrackerPage's
+ * category-chip fallback) have no machine to look up, so they sync as a
+ * `mode: "simple"` log carrying the distinct logged categories directly,
+ * same shape the old SimpleLogView used to write.
  */
 export async function syncWorkoutLog(uid: string, session: TrackedSession): Promise<void> {
+  if (session.gymId === null) {
+    const bodyParts = Array.from(
+      new Set(
+        session.exercises.filter((ex) => ex.status === "logged").map((ex) => ex.machineCategory)
+      )
+    ) as MachineCategory[];
+    if (bodyParts.length === 0) return;
+    await addDoc(collection(db, "users", uid, "workoutLogs"), {
+      mode: "simple" as const,
+      gymId: null,
+      date: Timestamp.now(),
+      bodyParts,
+      createdAt: serverTimestamp(),
+      plannedSessionId: session.sourcePlanSessionId,
+    });
+    await updateDoc(doc(db, "users", uid, "trackedSessions", session.id), {
+      lastSyncedLogAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+    return;
+  }
+
   const entries = toExerciseEntries(session);
   if (entries.length === 0) return;
   await addDoc(collection(db, "users", uid, "workoutLogs"), {

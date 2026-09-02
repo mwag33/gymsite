@@ -10,7 +10,7 @@ import { useNavigate } from "react-router-dom";
 import type { Session, TrackedSession } from "../../lib/types";
 import { parseLocalDateKey } from "./planDate";
 import { FocusIcon } from "./focusIcons";
-import { mergeDaySessions, summarizeDayStatus } from "./mergeSessions";
+import { mergeDaySessions, primaryDisplayCategory, summarizeDayStatus } from "./mergeSessions";
 import PlateRing from "../../components/PlateRing";
 
 interface MonthAgendaProps {
@@ -81,9 +81,10 @@ export default function MonthAgenda({
         {cells.map((session, i) => {
           if (!session) return <span key={`pad-${i}`} className="month-agenda-cell month-agenda-cell-empty" />;
           const isToday = session.date === today;
-          const isRest = session.focus === "rest";
           const view = mergeDaySessions(sessions, trackedSessions, session.date);
           const mergedStatus = summarizeDayStatus(view);
+          const displayCategory = primaryDisplayCategory(view);
+          const isRest = session.focus === "rest" && !displayCategory;
           const ring = cellRing(isRest ? null : mergedStatus);
           const dayNum = parseLocalDateKey(session.date).getDate();
           return (
@@ -101,7 +102,9 @@ export default function MonthAgenda({
                 holeColor="var(--surface-raised)"
                 label={<span className="month-agenda-cell-num tnum">{dayNum}</span>}
               />
-              {!isRest && <FocusIcon focus={session.focus} width={11} height={11} className="month-agenda-cell-icon" />}
+              {displayCategory && (
+                <FocusIcon focus={displayCategory} width={11} height={11} className="month-agenda-cell-icon" />
+              )}
             </button>
           );
         })}

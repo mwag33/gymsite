@@ -7,8 +7,10 @@ import { useNavigate } from "react-router-dom";
 import type { ReactNode } from "react";
 import type { DaySessionView } from "./mergeSessions";
 import { FOCUS_LABELS } from "./planFocus";
-import { FocusBadge, FocusIcon } from "./focusIcons";
+import { FocusBadge } from "./focusIcons";
 import { FOCUS_IMAGE } from "./focusImages";
+import { FocusTags, FOCUS_TAGS_STYLES } from "./FocusTags";
+import { deriveSessionFocusTags } from "./deriveFocus";
 
 interface TodayHeroProps {
   today: DaySessionView;
@@ -40,38 +42,44 @@ function renderContent(today: DaySessionView, navigate: (path: string) => void):
   if (tracked.length > 1) {
     return (
       <div className="today-hero-stack">
-        {tracked.map((session) => (
-          <button
-            key={session.id}
-            type="button"
-            className="today-hero card today-hero-stacked-item"
-            onClick={() => navigate(`/session/${session.id}`)}
-          >
-            <FocusIcon focus={session.focus} width={28} height={28} />
-            <div className="today-hero-heading">
-              <span className="today-hero-eyebrow">{session.status === "done" ? "Done" : "In progress"}</span>
-              <h2 className="today-hero-focus">{FOCUS_LABELS[session.focus] ?? session.focus}</h2>
-            </div>
-          </button>
-        ))}
+        {tracked.map((session) => {
+          const tags = deriveSessionFocusTags(session);
+          return (
+            <button
+              key={session.id}
+              type="button"
+              className="today-hero card today-hero-stacked-item"
+              onClick={() => navigate(`/session/${session.id}`)}
+            >
+              <div className="today-hero-heading">
+                <span className="today-hero-eyebrow">{session.status === "done" ? "Done" : "In progress"}</span>
+                <FocusTags categories={tags.categories} iconSize={22} />
+              </div>
+            </button>
+          );
+        })}
       </div>
     );
   }
 
   if (tracked.length === 1) {
     const session = tracked[0];
+    const tags = deriveSessionFocusTags(session);
     const exerciseNames = session.exercises.slice(0, 3).map((ex) => ex.name);
-    const image = FOCUS_IMAGE[session.focus];
+    // "Actual overrides planned": the photo matches what was actually logged
+    // (primary derived category), not the session's frozen creation-time
+    // focus - falls back to that frozen focus only while nothing's logged yet,
+    // and shows no photo at all for a still-empty ad hoc session.
+    const image = tags.categories.length > 0 ? FOCUS_IMAGE[tags.categories[0]] : FOCUS_IMAGE[session.focus];
     return (
       <div className="today-hero card">
         {image && <img src={image} alt="" className="today-hero-image" />}
         <div className="today-hero-header">
-          <FocusIcon focus={session.focus} width={36} height={36} />
           <div className="today-hero-heading">
             <span className="today-hero-eyebrow">
               Today · {session.status === "done" ? "Done" : "In progress"}
             </span>
-            <h2 className="today-hero-focus">{FOCUS_LABELS[session.focus] ?? session.focus}</h2>
+            <FocusTags categories={tags.categories} muscles={tags.muscles} iconSize={28} />
           </div>
         </div>
         <p className="today-hero-sub">
@@ -128,6 +136,7 @@ export default function TodayHero({ today }: TodayHeroProps) {
       {renderContent(today, navigate)}
 
       <style>{`
+        ${FOCUS_TAGS_STYLES}
         .today-hero {
           display: flex;
           flex-direction: column;
@@ -175,6 +184,14 @@ export default function TodayHero({ today }: TodayHeroProps) {
         }
         .today-hero-focus {
           font-size: 24px;
+          font-weight: 700;
+        }
+        .today-hero-heading .focus-tags-item {
+          font-size: 22px;
+          font-weight: 700;
+        }
+        .today-hero-stacked-item .focus-tags-item {
+          font-size: 17px;
           font-weight: 700;
         }
         .today-hero-sub {

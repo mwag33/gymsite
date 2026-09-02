@@ -4,7 +4,7 @@
 // `m.button` below picks up the LazyMotion/domAnimation features from
 // Sheet's provider in the React tree - no LazyMotion wrapper needed here.
 import { m } from "motion/react";
-import type { MachineStats, SetEntry } from "../../lib/types";
+import type { SetEntry } from "../../lib/types";
 import { tapScale, usePrefersReducedMotion } from "../../lib/motion";
 
 const WEIGHT_STEP = 2.5;
@@ -22,21 +22,11 @@ interface SetEditorProps {
   title: string;
   sets: SetEntry[];
   onSetsChange: (sets: SetEntry[]) => void;
-  lastStats?: MachineStats | null;
-  statsLoading?: boolean;
   onClose: () => void;
   error?: string | null;
 }
 
-export default function SetEditor({
-  title,
-  sets,
-  onSetsChange,
-  lastStats,
-  statsLoading,
-  onClose,
-  error,
-}: SetEditorProps) {
+export default function SetEditor({ title, sets, onSetsChange, onClose, error }: SetEditorProps) {
   const reducedMotion = usePrefersReducedMotion();
   const tapFeedback = reducedMotion ? undefined : tapScale;
 
@@ -60,11 +50,6 @@ export default function SetEditor({
     onSetsChange(sets.filter((_, i) => i !== index));
   }
 
-  function applySameAsLastTime() {
-    if (!lastStats) return;
-    onSetsChange(lastStats.lastSets.map((s) => ({ ...s })));
-  }
-
   return (
     <div className="card log-set-panel">
       <div className="log-set-panel-header">
@@ -73,18 +58,6 @@ export default function SetEditor({
           &times;
         </button>
       </div>
-
-      {statsLoading && <p className="log-status-muted">Loading last workout...</p>}
-
-      {!statsLoading && lastStats && lastStats.lastSets.length > 0 && (
-        <button
-          type="button"
-          className="btn btn-secondary log-same-as-last-btn"
-          onClick={applySameAsLastTime}
-        >
-          Same as last time ({summarizeSets(lastStats.lastSets)})
-        </button>
-      )}
 
       <div className="log-set-list">
         {sets.map((set, i) => (

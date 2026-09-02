@@ -6,10 +6,11 @@
 // the old dense vertical row list.
 import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { doc, getDoc, onSnapshot, collection } from "firebase/firestore";
+import { onSnapshot, collection } from "firebase/firestore";
 import { db } from "../../lib/firebase";
 import { useAuth } from "../../contexts/AuthContext";
-import type { Machine, MachineStats, TrackedExercise } from "../../lib/types";
+import type { Machine, TrackedExercise } from "../../lib/types";
+import { MACHINE_CATEGORIES } from "../../lib/types";
 import { findCatalogMachine } from "../../lib/machineCatalog";
 import MachineIcon from "../../components/MachineIcon";
 import MachinePicker from "../../components/MachinePicker";
@@ -17,10 +18,12 @@ import PlateRing from "../../components/PlateRing";
 import Sheet from "../../components/Sheet";
 import SetEditor, { summarizeSets } from "../log/SetEditor";
 import { useAutosaveTrackedSession } from "../../features/tracking/useAutosaveTrackedSession";
+import { useMachineStatsMap } from "../../features/tracking/useMachineStatsMap";
+import { getRecommendedMachines } from "../../features/tracking/recommendedExercises";
 import { computeTrackedSessionStatus } from "../../features/tracking/trackedSessionActions";
 import { weekdayLabel, shortDateLabel } from "../../features/plan/planDate";
-import { FOCUS_LABELS } from "../../features/plan/planFocus";
-import { FocusIcon } from "../../features/plan/focusIcons";
+import { FocusTags, FOCUS_TAGS_STYLES, categoryLabel } from "../../features/plan/FocusTags";
+import { deriveSessionFocusTags } from "../../features/plan/deriveFocus";
 
 function patchExercise(
   exercises: TrackedExercise[],
@@ -37,7 +40,7 @@ export default function SessionTrackerPage() {
   const { session, exercises, updateExercises } = useAutosaveTrackedSession(user?.uid, sessionId);
 
   const [machines, setMachines] = useState<Machine[]>([]);
-  const [statsByExerciseId, setStatsByExerciseId] = useState<Record<string, MachineStats | null>>({});
+  const statsByMachineId = useMachineStatsMap(user?.uid, session?.gymId);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [pickerMode, setPickerMode] = useState<"resolve" | "add" | null>(null);
   const [pickerExerciseId, setPickerExerciseId] = useState<string | null>(null);
@@ -72,28 +75,6 @@ export default function SessionTrackerPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [machines, exercises]);
 
-  useEffect(() => {
-    const toFetch = exercises.filter((ex) => ex.machineId && !(ex.id in statsByExerciseId));
-    if (!user || toFetch.length === 0) return;
-    void Promise.all(
-      toFetch.map(async (ex) => {
-        try {
-          const snap = await getDoc(doc(db, "users", user.uid, "machineStats", ex.machineId!));
-          return [ex.id, snap.exists() ? (snap.data() as MachineStats) : null] as const;
-        } catch {
-          return [ex.id, null] as const;
-        }
-      })
-    ).then((results) => {
-      setStatsByExerciseId((prev) => {
-        const next = { ...prev };
-        for (const [id, stats] of results) next[id] = stats;
-        return next;
-      });
-    });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [exercises, user]);
-
   if (session === undefined) return <div className="card">Loading session...</div>;
   if (session === null) {
     return (
@@ -111,6 +92,7 @@ export default function SessionTrackerPage() {
   // plus a round-trip echo, which would make PlateRing's completion flash
   // feel broken instead of satisfying. See computeTrackedSessionStatus.
   const isDoneLocally = computeTrackedSessionStatus(exercises) === "done";
+  const focusTags = deriveSessionFocusTags({ exercises, focus: session.focus });
 
   function toggleSkip(ex: TrackedExercise) {
     updateExercises((prev) =>
@@ -121,7 +103,7 @@ export default function SessionTrackerPage() {
   }
 
   function applySameAsLast(ex: TrackedExercise) {
-    const stats = statsByExerciseId[ex.id];
+    const stats = ex.machineId ? statsByMachineId[ex.machineId] : undefined;
     if (!stats?.lastSets?.length) return;
     updateExercises((prev) =>
       patchExercise(prev, ex.id, { sets: stats.lastSets.map((s) => ({ ...s })), status: "logged" })
@@ -146,6 +128,7 @@ export default function SessionTrackerPage() {
         machineId: machine.id,
         gymId: session!.gymId,
         machineCategory: machine.category,
+        targetMuscles: findCatalogMachine(machine.name)?.primaryMuscles,
         sets: [],
         status: "pending",
       };
@@ -153,6 +136,47 @@ export default function SessionTrackerPage() {
     }
     setPickerMode(null);
     setPickerExerciseId(null);
+  }
+
+  // One-tap add from the recommendation strip: adds the exercise and opens
+  // its set editor immediately, collapsing "add exercise -> search -> tap ->
+  // tap to log" into a single action for machines the user does regularly.
+  function handleQuickAdd(machine: Machine) {
+    const newExercise: TrackedExercise = {
+      id: crypto.randomUUID(),
+      name: machine.name,
+      machineId: machine.id,
+      gymId: session!.gymId,
+      machineCategory: machine.category,
+      targetMuscles: findCatalogMachine(machine.name)?.primaryMuscles,
+      sets: [],
+      status: "pending",
+    };
+    updateExercises((prev) => [...prev, newExercise]);
+    setExpandedId(newExercise.id);
+  }
+
+  // No-active-gym fallback (replaces the old standalone SimpleLogView): a
+  // machine-less "logged" exercise carrying just a category, so the day's
+  // calendar cell still reflects what was actually done (see deriveFocus.ts)
+  // even with no gym/machine data behind it. Tapping an already-logged chip
+  // again removes it - the only edit affordance this simple path needs.
+  function handleCategoryTap(category: TrackedExercise["machineCategory"]) {
+    const label = categoryLabel(category);
+    const newExercise: TrackedExercise = {
+      id: crypto.randomUUID(),
+      name: label,
+      machineId: null,
+      gymId: null,
+      machineCategory: category,
+      sets: [],
+      status: "logged",
+    };
+    updateExercises((prev) => [...prev, newExercise]);
+  }
+
+  function removeExercise(id: string) {
+    updateExercises((prev) => prev.filter((ex) => ex.id !== id));
   }
 
   return (
@@ -163,8 +187,7 @@ export default function SessionTrackerPage() {
             {weekdayLabel(session.date)} · {shortDateLabel(session.date)}
           </p>
           <div className="tracker-focus-row">
-            <FocusIcon focus={session.focus} width={20} height={20} />
-            <h1 className="tracker-focus">{FOCUS_LABELS[session.focus] ?? session.focus}</h1>
+            <FocusTags categories={focusTags.categories} muscles={focusTags.muscles} iconSize={20} />
           </div>
         </div>
         <div className="tracker-status">
@@ -181,10 +204,64 @@ export default function SessionTrackerPage() {
         </div>
       </div>
 
-      {exercises.length === 0 ? (
-        <div className="card tracker-empty">
-          <p>No exercises yet.</p>
+      {!session.gymId && session.sourcePlanSessionId === null ? (
+        // Genuinely ad hoc (no gym, no plan suggestion behind it) - safe to
+        // show the simple category-tap grid. A gym-less session that WAS
+        // accepted from a plan suggestion (equipment-notes-only onboarding,
+        // no machine data at all) still carries real planned exercises here
+        // and must fall through to the normal carousel below instead, or a
+        // category tap could mistake a planned exercise for a stray tap and
+        // delete it (see acceptPlanSession / planExerciseToTracked).
+        <div className="card tracker-category-grid">
+          {MACHINE_CATEGORIES.map((cat) => {
+            const existing = exercises.find((ex) => ex.machineCategory === cat.value);
+            return (
+              <button
+                key={cat.value}
+                type="button"
+                className={"tracker-category-card" + (existing ? " tracker-category-card-active" : "")}
+                onClick={() => (existing ? removeExercise(existing.id) : handleCategoryTap(cat.value))}
+              >
+                {cat.label}
+              </button>
+            );
+          })}
         </div>
+      ) : exercises.length === 0 ? (
+        (() => {
+          const recommended = getRecommendedMachines(statsByMachineId, machines);
+          return (
+            <div className="card tracker-empty">
+              {recommended.length > 0 && (
+                <>
+                  <p className="tracker-empty-title">
+                    {recommended[0].source === "history" ? "Based on what you usually do" : "Machines at this gym"}
+                  </p>
+                  <div className="tracker-carousel">
+                    {recommended.map(({ machine }) => {
+                      const catalogMatch = findCatalogMachine(machine.name);
+                      return (
+                        <button
+                          key={machine.id}
+                          type="button"
+                          className="tracker-card"
+                          onClick={() => handleQuickAdd(machine)}
+                        >
+                          <MachineIcon iconId={catalogMatch?.id ?? ""} image={catalogMatch?.image} width={44} height={44} />
+                          <span className="tracker-card-name">{machine.name}</span>
+                          <span className="tracker-card-target">Tap to add</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+              <button type="button" className="btn btn-secondary tracker-search-else" onClick={() => setPickerMode("add")}>
+                Search for something else
+              </button>
+            </div>
+          );
+        })()
       ) : (
         <div className="tracker-carousel">
           {exercises.map((ex) => {
@@ -240,15 +317,16 @@ export default function SessionTrackerPage() {
         {(() => {
           const ex = exercises.find((e) => e.id === expandedId);
           if (!ex) return null;
+          const lastStats = ex.machineId ? statsByMachineId[ex.machineId] : undefined;
           return (
             <div className="tracker-editor-wrap">
-              {statsByExerciseId[ex.id]?.lastSets?.length ? (
+              {lastStats?.lastSets?.length ? (
                 <button
                   type="button"
                   className="btn btn-secondary tracker-same-as-last"
                   onClick={() => applySameAsLast(ex)}
                 >
-                  Same as last time ({summarizeSets(statsByExerciseId[ex.id]!.lastSets)})
+                  Same as last time ({summarizeSets(lastStats.lastSets)})
                 </button>
               ) : null}
               <SetEditor
@@ -288,6 +366,7 @@ export default function SessionTrackerPage() {
       </Sheet>
 
       <style>{`
+        ${FOCUS_TAGS_STYLES}
         .tracker-page {
           display: flex;
           flex-direction: column;
@@ -309,7 +388,7 @@ export default function SessionTrackerPage() {
           align-items: center;
           gap: var(--space-2);
         }
-        .tracker-focus {
+        .tracker-focus-row .focus-tags-item {
           font-size: 24px;
           font-weight: 700;
         }
@@ -327,7 +406,39 @@ export default function SessionTrackerPage() {
           white-space: nowrap;
         }
         .tracker-empty {
+          display: flex;
+          flex-direction: column;
+          gap: var(--space-3);
           color: var(--text-muted);
+        }
+        .tracker-empty-title {
+          font-size: 13px;
+          font-weight: 600;
+          color: var(--text-muted);
+        }
+        .tracker-search-else {
+          width: 100%;
+        }
+        .tracker-category-grid {
+          display: grid;
+          grid-template-columns: repeat(2, 1fr);
+          gap: var(--space-3);
+        }
+        .tracker-category-card {
+          padding: var(--space-5) var(--space-3);
+          border-radius: var(--radius-lg);
+          border: 1px solid var(--border);
+          background: var(--surface);
+          color: var(--text);
+          font-size: 15px;
+          font-weight: 600;
+          text-align: center;
+          cursor: pointer;
+        }
+        .tracker-category-card-active {
+          border-color: var(--success);
+          background: var(--surface-raised);
+          color: var(--success);
         }
         .tracker-carousel {
           display: flex;
@@ -502,10 +613,6 @@ export default function SessionTrackerPage() {
           line-height: 1;
           cursor: pointer;
           padding: 0;
-        }
-        .log-same-as-last-btn {
-          align-self: flex-start;
-          font-size: 13px;
         }
         .log-set-list {
           display: flex;

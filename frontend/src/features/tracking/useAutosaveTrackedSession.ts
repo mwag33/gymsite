@@ -11,7 +11,9 @@ import { computeTrackedSessionStatus, syncWorkoutLog } from "./trackedSessionAct
 const AUTOSAVE_DEBOUNCE_MS = 600;
 
 function loggedSnapshotKey(exercises: TrackedExercise[]): string {
-  return JSON.stringify(exercises.filter((ex) => ex.sets.length > 0));
+  // "logged" also covers a no-machine category tap (gymId === null path),
+  // which resolves with zero sets - see SessionTrackerPage/syncWorkoutLog.
+  return JSON.stringify(exercises.filter((ex) => ex.status !== "pending"));
 }
 
 export function useAutosaveTrackedSession(uid: string | undefined, sessionId: string | undefined) {

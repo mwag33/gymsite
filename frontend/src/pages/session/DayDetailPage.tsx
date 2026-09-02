@@ -13,15 +13,17 @@ import { db } from "../../lib/firebase";
 import { useAuth } from "../../contexts/AuthContext";
 import { useActiveGym } from "../../contexts/ActiveGymContext";
 import type { PlanDoc, TrackedSession, TrainingPlanFocus } from "../../lib/types";
-import { weekdayLabel } from "../../features/plan/planDate";
+import { weekdayLabel, shortDateLabel } from "../../features/plan/planDate";
 import { EDITABLE_FOCUS_OPTIONS, FOCUS_LABELS } from "../../features/plan/planFocus";
 import { FocusIcon } from "../../features/plan/focusIcons";
 import AdjustmentBanner from "../../features/plan/AdjustmentBanner";
 import SessionEditor from "../../features/plan/SessionEditor";
 import PlateRing from "../../components/PlateRing";
 import { mergeDaySessions } from "../../features/plan/mergeSessions";
+import { FocusTags, FOCUS_TAGS_STYLES } from "../../features/plan/FocusTags";
+import { deriveSessionFocusTags } from "../../features/plan/deriveFocus";
 import { acceptPlanSession, createAdHocTrackedSession } from "../../features/tracking/trackedSessionActions";
-import { updateSession, regenerateSessionExercises } from "../../lib/callables";
+import { updateSession, regenerateSessionExercises, moveSession } from "../../lib/callables";
 
 const TRACKED_STATUS_LABEL: Record<TrackedSession["status"], string> = {
   in_progress: "In progress",
@@ -44,6 +46,9 @@ export default function DayDetailPage() {
   const [regenError, setRegenError] = useState<string | null>(null);
   const [accepting, setAccepting] = useState(false);
   const [acceptError, setAcceptError] = useState<string | null>(null);
+  const [movingOpen, setMovingOpen] = useState(false);
+  const [moving, setMoving] = useState(false);
+  const [moveError, setMoveError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!user) return;
@@ -132,20 +137,44 @@ export default function DayDetailPage() {
     suggestion && (suggestion.source === "deterministic_reschedule" || suggestion.rescheduledFromSessionId)
   );
 
+  // Upcoming, unlocked rest days already in the loaded plan window - the
+  // only valid move targets (see functions/src/moveSession.ts), so no extra
+  // fetch is needed to list them.
+  const restDayOptions = (plan?.sessions ?? [])
+    .filter((s) => s.focus === "rest" && !s.locked && s.date > date)
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  async function handleMove(targetDate: string) {
+    if (!suggestion || moving) return;
+    setMoving(true);
+    setMoveError(null);
+    try {
+      await moveSession({ sessionId: suggestion.id, targetDate });
+      setMovingOpen(false);
+    } catch (err) {
+      setMoveError(err instanceof Error ? err.message : "Couldn't move this session.");
+    } finally {
+      setMoving(false);
+    }
+  }
+
   return (
     <div className="day-detail">
       <p className="day-detail-date">{weekdayLabel(date)}</p>
 
-      {view.tracked.map((session) => (
+      {view.tracked.map((session) => {
+        const tags = deriveSessionFocusTags(session);
+        return (
         <button
           key={session.id}
           type="button"
           className="card day-detail-tracked-card"
           onClick={() => navigate(`/session/${session.id}`)}
         >
-          <FocusIcon focus={session.focus} width={22} height={22} />
           <div className="day-detail-tracked-info">
-            <span className="day-detail-tracked-focus">{FOCUS_LABELS[session.focus] ?? session.focus}</span>
+            <span className="day-detail-tracked-focus">
+              <FocusTags categories={tags.categories} muscles={tags.muscles} iconSize={18} />
+            </span>
             <span className="day-detail-tracked-sub">
               {session.exercises.length} exercise{session.exercises.length === 1 ? "" : "s"}
             </span>
@@ -164,7 +193,8 @@ export default function DayDetailPage() {
             <span className="day-detail-status-label">{TRACKED_STATUS_LABEL[session.status]}</span>
           </div>
         </button>
-      ))}
+        );
+      })}
 
       {suggestion && (
         <div className="card day-detail-suggestion">
@@ -226,7 +256,35 @@ export default function DayDetailPage() {
             <button type="button" className="btn btn-secondary day-detail-btn" onClick={() => setEditing(true)}>
               Edit just this day
             </button>
+            <button
+              type="button"
+              className="btn btn-secondary day-detail-btn"
+              onClick={() => setMovingOpen((v) => !v)}
+            >
+              {movingOpen ? "Cancel move" : "Move to another day"}
+            </button>
           </div>
+
+          {movingOpen && (
+            <div className="day-detail-swap" role="list">
+              {restDayOptions.length === 0 && (
+                <p className="day-detail-empty">No upcoming rest days to move this to yet.</p>
+              )}
+              {restDayOptions.map((d) => (
+                <button
+                  key={d.id}
+                  type="button"
+                  role="listitem"
+                  className="day-detail-swap-chip"
+                  disabled={moving}
+                  onClick={() => void handleMove(d.date)}
+                >
+                  {weekdayLabel(d.date)} · {shortDateLabel(d.date)}
+                </button>
+              ))}
+            </div>
+          )}
+          {moveError && <p className="day-detail-error">{moveError}</p>}
         </div>
       )}
 
@@ -235,6 +293,7 @@ export default function DayDetailPage() {
       </button>
 
       <style>{`
+        ${FOCUS_TAGS_STYLES}
         .day-detail {
           display: flex;
           flex-direction: column;

@@ -6,11 +6,11 @@
 // arc - a full plate doesn't read cleanly below ~48px, see the design plan.
 //
 // Self-contained LazyMotion wrapper: PlateRing is used from places that
-// already have a `motion` context in their tree (SessionTrackerPage, via
-// Sheet.tsx) and places that don't (OverviewStats.tsx, HomePage.tsx), so it
-// can't assume an ancestor provider. `domAnimation`'s module is deduped by
-// the bundler within whatever lazy chunk imports this, so multiple rings on
-// one page don't multiply the cost - see lib/motion.ts.
+// already have a `motion` context in their tree (DayLogPage, via Sheet.tsx)
+// and places that don't (OverviewStats.tsx, HomePage.tsx), so it can't
+// assume an ancestor provider. `domAnimation`'s module is deduped by the
+// bundler within whatever lazy chunk imports this, so multiple rings on one
+// page don't multiply the cost - see lib/motion.ts.
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { AnimatePresence, LazyMotion, domAnimation, m } from "motion/react";
 import { springSoft, usePrefersReducedMotion } from "../lib/motion";
@@ -36,8 +36,8 @@ interface PlateRingProps {
   /**
    * One-shot celebration trigger: flip this from false to true (e.g. on the
    * "in_progress" -> "done" edge, computed locally - see
-   * trackedSessionActions.computeTrackedSessionStatus) to fire a single
-   * volt-colored flash. Does not stay lit - it's a moment, not a state.
+   * dayActions.computeDaySessionStatus) to fire a single volt-colored flash.
+   * Does not stay lit - it's a moment, not a state.
    */
   celebrate?: boolean;
 }

@@ -1,15 +1,18 @@
-// The tracked-session editor, at /session/:sessionId. Replaces the old
-// SessionLogList + LogWorkoutPage.handleFinishSession flow: every set change
-// autosaves (see useAutosaveTrackedSession) instead of an explicit
-// "Save exercise" / "Finish session" button. Exercises render as a
-// horizontally-scrollable card carousel (bright-mode visual pass) instead of
-// the old dense vertical row list.
-import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+// The single logging page for a calendar day, at /day/:date - merges the old
+// DayDetailPage (accept/suggestion flow) and SessionTrackerPage (exercise
+// carousel) into one screen with no accept step: a day is always editable,
+// on any date, immediately. Exercises render as a horizontally-scrollable
+// card carousel mixing already-logged/added cards with greyed "suggested"
+// cards (history-ranked, filtered to the day's type) - tapping a suggestion
+// adds and logs it in one step; every real card can be deleted with an
+// undo toast.
+import { useEffect, useMemo, useState } from "react";
+import { useParams } from "react-router-dom";
 import { onSnapshot, collection } from "firebase/firestore";
 import { db } from "../../lib/firebase";
 import { useAuth } from "../../contexts/AuthContext";
-import type { Machine, TrackedExercise } from "../../lib/types";
+import { useActiveGym } from "../../contexts/ActiveGymContext";
+import type { Machine, MachineCategory, TrackedExercise } from "../../lib/types";
 import { MACHINE_CATEGORIES } from "../../lib/types";
 import { findCatalogMachine } from "../../lib/machineCatalog";
 import MachineIcon from "../../components/MachineIcon";
@@ -17,13 +20,15 @@ import MachinePicker from "../../components/MachinePicker";
 import PlateRing from "../../components/PlateRing";
 import Sheet from "../../components/Sheet";
 import SetEditor, { summarizeSets } from "../log/SetEditor";
-import { useAutosaveTrackedSession } from "../../features/tracking/useAutosaveTrackedSession";
+import { useDaySession } from "../../features/tracking/useDaySession";
 import { useMachineStatsMap } from "../../features/tracking/useMachineStatsMap";
 import { getRecommendedMachines } from "../../features/tracking/recommendedExercises";
-import { computeTrackedSessionStatus } from "../../features/tracking/trackedSessionActions";
-import { weekdayLabel, shortDateLabel } from "../../features/plan/planDate";
-import { FocusTags, FOCUS_TAGS_STYLES, categoryLabel } from "../../features/plan/FocusTags";
+import { defaultFocusForDate } from "../../features/tracking/dayActions";
+import { weekdayLabel, shortDateLabel, toLocalDateKey } from "../../features/plan/planDate";
+import { FocusTags, FOCUS_TAGS_STYLES } from "../../features/plan/FocusTags";
 import { deriveSessionFocusTags } from "../../features/plan/deriveFocus";
+import { EDITABLE_FOCUS_OPTIONS, FOCUS_LABELS } from "../../features/plan/planFocus";
+import { FocusIcon } from "../../features/plan/focusIcons";
 
 function patchExercise(
   exercises: TrackedExercise[],
@@ -33,32 +38,40 @@ function patchExercise(
   return exercises.map((ex) => (ex.id === id ? { ...ex, ...patch } : ex));
 }
 
-export default function SessionTrackerPage() {
-  const { user } = useAuth();
-  const navigate = useNavigate();
-  const { sessionId } = useParams<{ sessionId: string }>();
-  const { session, exercises, updateExercises } = useAutosaveTrackedSession(user?.uid, sessionId);
+export default function DayLogPage() {
+  const { user, profile } = useAuth();
+  const { activeGym } = useActiveGym();
+  const { date } = useParams<{ date: string }>();
+
+  const pattern = profile?.weeklyFocusPattern ?? null;
+  const defaultFocus = date ? defaultFocusForDate(date, pattern) : "other";
+  const { loading, focus, exercises, updateExercises, setFocus } = useDaySession(
+    user?.uid,
+    date,
+    defaultFocus,
+    activeGym?.id ?? null
+  );
 
   const [machines, setMachines] = useState<Machine[]>([]);
-  const statsByMachineId = useMachineStatsMap(user?.uid, session?.gymId);
+  const statsByMachineId = useMachineStatsMap(user?.uid, activeGym?.id);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [pickerMode, setPickerMode] = useState<"resolve" | "add" | null>(null);
   const [pickerExerciseId, setPickerExerciseId] = useState<string | null>(null);
+  const [changingFocus, setChangingFocus] = useState(false);
+  const [undo, setUndo] = useState<{ exercise: TrackedExercise; index: number } | null>(null);
 
   useEffect(() => {
-    if (!session?.gymId) {
+    if (!activeGym?.id) {
       setMachines([]);
       return;
     }
-    return onSnapshot(collection(db, "gyms", session.gymId, "machines"), (snap) =>
+    return onSnapshot(collection(db, "gyms", activeGym.id, "machines"), (snap) =>
       setMachines(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Machine))
     );
-  }, [session?.gymId]);
+  }, [activeGym?.id]);
 
-  // Auto-resolve an accepted suggestion's exercises (machineId: null, name +
-  // machineCategory only) to a real gym machine by exact name match, same
-  // convention the old SessionLogList used - but persisted here, since
-  // TrackedSession (not derived render state) is now the source of truth.
+  // Auto-resolve a materialized-from-onboarding exercise (machineId: null,
+  // name + machineCategory only) to a real gym machine by exact name match.
   useEffect(() => {
     const unresolved = exercises.filter((ex) => !ex.machineId);
     if (unresolved.length === 0 || machines.length === 0) return;
@@ -67,7 +80,7 @@ export default function SessionTrackerPage() {
     for (const ex of unresolved) {
       const match = machines.find((m) => m.name.trim().toLowerCase() === ex.name.trim().toLowerCase());
       if (match) {
-        next = patchExercise(next, ex.id, { machineId: match.id, gymId: session?.gymId ?? null });
+        next = patchExercise(next, ex.id, { machineId: match.id, gymId: activeGym?.id ?? null });
         changed = true;
       }
     }
@@ -75,24 +88,27 @@ export default function SessionTrackerPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [machines, exercises]);
 
-  if (session === undefined) return <div className="card">Loading session...</div>;
-  if (session === null) {
-    return (
-      <div className="card">
-        <p>This session doesn't exist (anymore).</p>
-        <button type="button" className="btn btn-secondary" onClick={() => navigate("/")}>
-          Back to Home
-        </button>
-      </div>
-    );
-  }
+  useEffect(() => {
+    if (!undo) return;
+    const t = setTimeout(() => setUndo(null), 5000);
+    return () => clearTimeout(t);
+  }, [undo]);
 
-  // Computed against local `exercises` state, not `session.status` from
-  // Firestore - the latter lags the user's last tap by the autosave debounce
-  // plus a round-trip echo, which would make PlateRing's completion flash
-  // feel broken instead of satisfying. See computeTrackedSessionStatus.
-  const isDoneLocally = computeTrackedSessionStatus(exercises) === "done";
-  const focusTags = deriveSessionFocusTags({ exercises, focus: session.focus });
+  const excludeMachineIds = useMemo(
+    () => new Set(exercises.filter((ex) => ex.machineId).map((ex) => ex.machineId as string)),
+    [exercises]
+  );
+  const suggestions = useMemo(() => {
+    if (!activeGym?.id) return [];
+    const category: MachineCategory | null = focus === "rest" || focus === "other" ? null : focus;
+    return getRecommendedMachines(statsByMachineId, machines, category, excludeMachineIds);
+  }, [activeGym?.id, statsByMachineId, machines, focus, excludeMachineIds]);
+
+  if (!date) return null;
+  if (loading) return <div className="card">Loading...</div>;
+
+  const focusTags = deriveSessionFocusTags({ exercises, focus });
+  const today = toLocalDateKey(new Date());
 
   function toggleSkip(ex: TrackedExercise) {
     updateExercises((prev) =>
@@ -118,15 +134,13 @@ export default function SessionTrackerPage() {
 
   function handleMachineResolved(machine: Machine) {
     if (pickerMode === "resolve" && pickerExerciseId) {
-      updateExercises((prev) =>
-        patchExercise(prev, pickerExerciseId, { machineId: machine.id, gymId: session!.gymId })
-      );
+      updateExercises((prev) => patchExercise(prev, pickerExerciseId, { machineId: machine.id, gymId: activeGym?.id ?? null }));
     } else if (pickerMode === "add") {
       const newExercise: TrackedExercise = {
         id: crypto.randomUUID(),
         name: machine.name,
         machineId: machine.id,
-        gymId: session!.gymId,
+        gymId: activeGym?.id ?? null,
         machineCategory: machine.category,
         targetMuscles: findCatalogMachine(machine.name)?.primaryMuscles,
         sets: [],
@@ -138,15 +152,14 @@ export default function SessionTrackerPage() {
     setPickerExerciseId(null);
   }
 
-  // One-tap add from the recommendation strip: adds the exercise and opens
-  // its set editor immediately, collapsing "add exercise -> search -> tap ->
-  // tap to log" into a single action for machines the user does regularly.
-  function handleQuickAdd(machine: Machine) {
+  // Tapping a greyed suggestion adds it and opens its set editor immediately
+  // - "greyed suggestion -> tap -> log" collapses into one action.
+  function handleTapSuggestion(machine: Machine) {
     const newExercise: TrackedExercise = {
       id: crypto.randomUUID(),
       name: machine.name,
       machineId: machine.id,
-      gymId: session!.gymId,
+      gymId: activeGym?.id ?? null,
       machineCategory: machine.category,
       targetMuscles: findCatalogMachine(machine.name)?.primaryMuscles,
       sets: [],
@@ -156,16 +169,12 @@ export default function SessionTrackerPage() {
     setExpandedId(newExercise.id);
   }
 
-  // No-active-gym fallback (replaces the old standalone SimpleLogView): a
-  // machine-less "logged" exercise carrying just a category, so the day's
-  // calendar cell still reflects what was actually done (see deriveFocus.ts)
-  // even with no gym/machine data behind it. Tapping an already-logged chip
-  // again removes it - the only edit affordance this simple path needs.
+  // No-active-gym fallback: a machine-less "logged" exercise carrying just a
+  // category. Tapping an already-logged chip again removes it.
   function handleCategoryTap(category: TrackedExercise["machineCategory"]) {
-    const label = categoryLabel(category);
     const newExercise: TrackedExercise = {
       id: crypto.randomUUID(),
-      name: label,
+      name: MACHINE_CATEGORIES.find((c) => c.value === category)?.label ?? category,
       machineId: null,
       gymId: null,
       machineCategory: category,
@@ -175,140 +184,162 @@ export default function SessionTrackerPage() {
     updateExercises((prev) => [...prev, newExercise]);
   }
 
-  function removeExercise(id: string) {
-    updateExercises((prev) => prev.filter((ex) => ex.id !== id));
+  function removeExercise(ex: TrackedExercise) {
+    const index = exercises.findIndex((e) => e.id === ex.id);
+    updateExercises((prev) => prev.filter((e) => e.id !== ex.id));
+    setUndo({ exercise: ex, index });
+    if (expandedId === ex.id) setExpandedId(null);
+  }
+
+  function handleUndo() {
+    if (!undo) return;
+    updateExercises((prev) => {
+      const next = [...prev];
+      next.splice(Math.min(undo.index, next.length), 0, undo.exercise);
+      return next;
+    });
+    setUndo(null);
   }
 
   return (
-    <div className="tracker-page">
-      <div className="tracker-header">
+    <div className="day-log-page">
+      <div className="day-log-header">
         <div>
-          <p className="tracker-date">
-            {weekdayLabel(session.date)} · {shortDateLabel(session.date)}
+          <p className="day-log-date">
+            {date === today ? "Today" : weekdayLabel(date)} · {shortDateLabel(date)}
           </p>
-          <div className="tracker-focus-row">
-            <FocusTags categories={focusTags.categories} muscles={focusTags.muscles} iconSize={20} />
-          </div>
+          <button type="button" className="day-log-focus-btn" onClick={() => setChangingFocus((v) => !v)}>
+            <FocusTags categories={focusTags.categories} muscles={focusTags.muscles} iconSize={22} />
+            <span className="day-log-focus-edit">{changingFocus ? "Cancel" : "Change type"}</span>
+          </button>
         </div>
-        <div className="tracker-status">
-          <PlateRing
-            size={40}
-            fillPercent={
-              exercises.length > 0 ? exercises.filter((ex) => ex.status !== "pending").length / exercises.length : 0
-            }
-            color={isDoneLocally ? "var(--success)" : "var(--accent)"}
-            label={isDoneLocally ? "✓" : undefined}
-            celebrate={isDoneLocally}
-          />
-          <span className="tracker-status-label">{isDoneLocally ? "Done" : "In progress"}</span>
-        </div>
+        <PlateRing
+          size={40}
+          fillPercent={exercises.length > 0 ? exercises.filter((ex) => ex.status !== "pending").length / exercises.length : 0}
+          color={exercises.length > 0 && exercises.every((ex) => ex.status !== "pending") ? "var(--success)" : "var(--accent)"}
+          label={exercises.length > 0 && exercises.every((ex) => ex.status !== "pending") ? "✓" : undefined}
+        />
       </div>
 
-      {!session.gymId && session.sourcePlanSessionId === null ? (
-        // Genuinely ad hoc (no gym, no plan suggestion behind it) - safe to
-        // show the simple category-tap grid. A gym-less session that WAS
-        // accepted from a plan suggestion (equipment-notes-only onboarding,
-        // no machine data at all) still carries real planned exercises here
-        // and must fall through to the normal carousel below instead, or a
-        // category tap could mistake a planned exercise for a stray tap and
-        // delete it (see acceptPlanSession / planExerciseToTracked).
-        <div className="card tracker-category-grid">
+      {changingFocus && (
+        <div className="day-log-swap" role="list">
+          {EDITABLE_FOCUS_OPTIONS.map((f) => (
+            <button
+              key={f}
+              type="button"
+              role="listitem"
+              className={"day-log-swap-chip" + (f === focus ? " day-log-swap-chip-active" : "")}
+              onClick={() => {
+                void setFocus(f);
+                setChangingFocus(false);
+              }}
+            >
+              <FocusIcon focus={f} width={14} height={14} />
+              {FOCUS_LABELS[f]}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {!activeGym?.id ? (
+        <div className="card day-log-category-grid">
           {MACHINE_CATEGORIES.map((cat) => {
             const existing = exercises.find((ex) => ex.machineCategory === cat.value);
             return (
               <button
                 key={cat.value}
                 type="button"
-                className={"tracker-category-card" + (existing ? " tracker-category-card-active" : "")}
-                onClick={() => (existing ? removeExercise(existing.id) : handleCategoryTap(cat.value))}
+                className={"day-log-category-card" + (existing ? " day-log-category-card-active" : "")}
+                onClick={() => (existing ? removeExercise(existing) : handleCategoryTap(cat.value))}
               >
                 {cat.label}
               </button>
             );
           })}
         </div>
-      ) : exercises.length === 0 ? (
-        (() => {
-          const recommended = getRecommendedMachines(statsByMachineId, machines);
-          return (
-            <div className="card tracker-empty">
-              {recommended.length > 0 && (
-                <>
-                  <p className="tracker-empty-title">
-                    {recommended[0].source === "history" ? "Based on what you usually do" : "Machines at this gym"}
-                  </p>
-                  <div className="tracker-carousel">
-                    {recommended.map(({ machine }) => {
-                      const catalogMatch = findCatalogMachine(machine.name);
-                      return (
-                        <button
-                          key={machine.id}
-                          type="button"
-                          className="tracker-card"
-                          onClick={() => handleQuickAdd(machine)}
-                        >
-                          <MachineIcon iconId={catalogMatch?.id ?? ""} image={catalogMatch?.image} width={44} height={44} />
-                          <span className="tracker-card-name">{machine.name}</span>
-                          <span className="tracker-card-target">Tap to add</span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </>
-              )}
-              <button type="button" className="btn btn-secondary tracker-search-else" onClick={() => setPickerMode("add")}>
-                Search for something else
-              </button>
-            </div>
-          );
-        })()
       ) : (
-        <div className="tracker-carousel">
+        <div className="day-log-carousel">
           {exercises.map((ex) => {
             const catalogMatch = findCatalogMachine(ex.name);
             const isExpanded = expandedId === ex.id;
             return (
-              <button
+              <div
                 key={ex.id}
-                type="button"
                 className={
-                  "tracker-card" +
-                  (ex.status === "logged" ? " tracker-card-logged" : "") +
-                  (ex.status === "skipped" ? " tracker-card-skipped" : "") +
-                  (isExpanded ? " tracker-card-active" : "")
+                  "day-log-card" +
+                  (ex.status === "logged" ? " day-log-card-logged" : "") +
+                  (ex.status === "skipped" ? " day-log-card-skipped" : "") +
+                  (isExpanded ? " day-log-card-active" : "")
                 }
-                onClick={() => {
-                  if (!ex.machineId) {
-                    setPickerMode("resolve");
-                    setPickerExerciseId(ex.id);
-                    return;
-                  }
-                  setExpandedId(isExpanded ? null : ex.id);
-                }}
+              >
+                <button
+                  type="button"
+                  className="day-log-card-remove"
+                  aria-label={`Remove ${ex.name}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    removeExercise(ex);
+                  }}
+                >
+                  ×
+                </button>
+                <button
+                  type="button"
+                  className="day-log-card-body"
+                  onClick={() => {
+                    if (!ex.machineId) {
+                      setPickerMode("resolve");
+                      setPickerExerciseId(ex.id);
+                      return;
+                    }
+                    setExpandedId(isExpanded ? null : ex.id);
+                  }}
+                >
+                  <MachineIcon iconId={catalogMatch?.id ?? ""} image={catalogMatch?.image} width={44} height={44} />
+                  <span className="day-log-card-name">{ex.name}</span>
+                  <span className="day-log-card-target tnum">
+                    {ex.status === "logged"
+                      ? summarizeSets(ex.sets)
+                      : ex.status === "skipped"
+                        ? "Skipped"
+                        : ex.targetSets
+                          ? `${ex.targetSets} × ${ex.targetReps}`
+                          : "Tap to log"}
+                  </span>
+                  {!ex.machineId && <span className="day-log-card-nomatch">Find machine</span>}
+                </button>
+              </div>
+            );
+          })}
+
+          {suggestions.map(({ machine }) => {
+            const catalogMatch = findCatalogMachine(machine.name);
+            return (
+              <button
+                key={machine.id}
+                type="button"
+                className="day-log-card day-log-card-suggested"
+                onClick={() => handleTapSuggestion(machine)}
               >
                 <MachineIcon iconId={catalogMatch?.id ?? ""} image={catalogMatch?.image} width={44} height={44} />
-                <span className="tracker-card-name">{ex.name}</span>
-                <span className="tracker-card-target tnum">
-                  {ex.status === "logged"
-                    ? summarizeSets(ex.sets)
-                    : ex.status === "skipped"
-                      ? "Skipped"
-                      : ex.targetSets
-                        ? `${ex.targetSets} × ${ex.targetReps}`
-                        : "Tap to log"}
-                </span>
-                {!ex.machineId && <span className="tracker-card-nomatch">Find machine</span>}
+                <span className="day-log-card-name">{machine.name}</span>
+                <span className="day-log-card-target">Suggested</span>
               </button>
             );
           })}
 
-          <button
-            type="button"
-            className="tracker-card tracker-card-add"
-            onClick={() => setPickerMode("add")}
-          >
-            <span className="tracker-card-add-icon">+</span>
-            <span className="tracker-card-name">Add exercise</span>
+          <button type="button" className="day-log-card day-log-card-add" onClick={() => setPickerMode("add")}>
+            <span className="day-log-card-add-icon">+</span>
+            <span className="day-log-card-name">Add exercise</span>
+          </button>
+        </div>
+      )}
+
+      {undo && (
+        <div className="day-log-toast">
+          <span>Removed {undo.exercise.name}</span>
+          <button type="button" onClick={handleUndo}>
+            Undo
           </button>
         </div>
       )}
@@ -319,23 +350,14 @@ export default function SessionTrackerPage() {
           if (!ex) return null;
           const lastStats = ex.machineId ? statsByMachineId[ex.machineId] : undefined;
           return (
-            <div className="tracker-editor-wrap">
+            <div className="day-log-editor-wrap">
               {lastStats?.lastSets?.length ? (
-                <button
-                  type="button"
-                  className="btn btn-secondary tracker-same-as-last"
-                  onClick={() => applySameAsLast(ex)}
-                >
+                <button type="button" className="btn btn-secondary day-log-same-as-last" onClick={() => applySameAsLast(ex)}>
                   Same as last time ({summarizeSets(lastStats.lastSets)})
                 </button>
               ) : null}
-              <SetEditor
-                title={ex.name}
-                sets={ex.sets}
-                onSetsChange={(sets) => handleSetsChange(ex.id, sets)}
-                onClose={() => setExpandedId(null)}
-              />
-              <button type="button" className="tracker-skip-btn" onClick={() => toggleSkip(ex)}>
+              <SetEditor title={ex.name} sets={ex.sets} onSetsChange={(sets) => handleSetsChange(ex.id, sets)} onClose={() => setExpandedId(null)} />
+              <button type="button" className="day-log-skip-btn" onClick={() => toggleSkip(ex)}>
                 {ex.status === "skipped" ? "Undo skip" : "Skip this exercise"}
               </button>
             </div>
@@ -344,15 +366,15 @@ export default function SessionTrackerPage() {
       </Sheet>
 
       <Sheet
-        open={Boolean(pickerMode && session.gymId)}
+        open={Boolean(pickerMode && activeGym?.id)}
         onClose={() => {
           setPickerMode(null);
           setPickerExerciseId(null);
         }}
       >
-        {pickerMode && session.gymId && (
+        {pickerMode && activeGym?.id && (
           <MachinePicker
-            gymId={session.gymId}
+            gymId={activeGym.id}
             uid={user!.uid}
             machines={machines}
             title={pickerMode === "add" ? "Add an exercise" : "Find a machine for this exercise"}
@@ -367,64 +389,71 @@ export default function SessionTrackerPage() {
 
       <style>{`
         ${FOCUS_TAGS_STYLES}
-        .tracker-page {
+        .day-log-page {
           display: flex;
           flex-direction: column;
           gap: var(--space-4);
         }
-        .tracker-header {
+        .day-log-header {
           display: flex;
           align-items: flex-start;
           justify-content: space-between;
           gap: var(--space-3);
         }
-        .tracker-date {
+        .day-log-date {
           margin: 0 0 var(--space-1);
           font-size: 13px;
           color: var(--text-muted);
         }
-        .tracker-focus-row {
+        .day-log-focus-btn {
           display: flex;
-          align-items: center;
-          gap: var(--space-2);
+          flex-direction: column;
+          align-items: flex-start;
+          gap: 2px;
+          background: none;
+          border: none;
+          padding: 0;
+          color: var(--text);
+          cursor: pointer;
         }
-        .tracker-focus-row .focus-tags-item {
-          font-size: 24px;
+        .day-log-focus-btn .focus-tags-item {
+          font-size: 22px;
           font-weight: 700;
         }
-        .tracker-status {
-          flex-shrink: 0;
+        .day-log-focus-edit {
+          font-size: 12px;
+          font-weight: 600;
+          color: var(--accent);
+        }
+        .day-log-swap {
           display: flex;
-          flex-direction: column;
+          flex-wrap: wrap;
+          gap: var(--space-2);
+        }
+        .day-log-swap-chip {
+          display: inline-flex;
           align-items: center;
           gap: var(--space-1);
-        }
-        .tracker-status-label {
-          font-size: 11px;
-          font-weight: 600;
-          color: var(--text-muted);
-          white-space: nowrap;
-        }
-        .tracker-empty {
-          display: flex;
-          flex-direction: column;
-          gap: var(--space-3);
-          color: var(--text-muted);
-        }
-        .tracker-empty-title {
+          padding: var(--space-2) var(--space-3);
+          border-radius: 999px;
+          border: 1px solid var(--border);
+          background: var(--surface);
+          color: var(--text);
           font-size: 13px;
           font-weight: 600;
-          color: var(--text-muted);
+          cursor: pointer;
         }
-        .tracker-search-else {
-          width: 100%;
+        .day-log-swap-chip-active {
+          border-color: var(--accent);
+          background: var(--accent-surface);
+          color: var(--accent);
         }
-        .tracker-category-grid {
+        .day-log-category-grid {
           display: grid;
           grid-template-columns: repeat(2, 1fr);
           gap: var(--space-3);
         }
-        .tracker-category-card {
+        .day-log-category-card {
           padding: var(--space-5) var(--space-3);
           border-radius: var(--radius-lg);
           border: 1px solid var(--border);
@@ -435,12 +464,12 @@ export default function SessionTrackerPage() {
           text-align: center;
           cursor: pointer;
         }
-        .tracker-category-card-active {
+        .day-log-category-card-active {
           border-color: var(--success);
           background: var(--surface-raised);
           color: var(--success);
         }
-        .tracker-carousel {
+        .day-log-carousel {
           display: flex;
           gap: var(--space-3);
           overflow-x: auto;
@@ -450,7 +479,8 @@ export default function SessionTrackerPage() {
           padding-left: var(--space-4);
           padding-right: var(--space-4);
         }
-        .tracker-card {
+        .day-log-card {
+          position: relative;
           scroll-snap-align: start;
           flex: 0 0 132px;
           display: flex;
@@ -466,49 +496,102 @@ export default function SessionTrackerPage() {
           color: var(--text);
           cursor: pointer;
         }
-        .tracker-card-active {
+        .day-log-card-body {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          gap: var(--space-2);
+          background: none;
+          border: none;
+          padding: 0;
+          color: inherit;
+          font: inherit;
+          cursor: pointer;
+          width: 100%;
+        }
+        .day-log-card-remove {
+          position: absolute;
+          top: 4px;
+          right: 4px;
+          width: 22px;
+          height: 22px;
+          border-radius: 50%;
+          border: none;
+          background: var(--surface-raised);
+          color: var(--text-muted);
+          font-size: 15px;
+          line-height: 1;
+          cursor: pointer;
+        }
+        .day-log-card-active {
           border-color: var(--accent);
           box-shadow: var(--shadow-md);
         }
-        .tracker-card-logged {
+        .day-log-card-logged {
           border-color: var(--success);
         }
-        .tracker-card-skipped {
+        .day-log-card-skipped {
           opacity: 0.5;
         }
-        .tracker-card-name {
+        .day-log-card-suggested {
+          opacity: 0.55;
+          border-style: dashed;
+        }
+        .day-log-card-name {
           font-size: 13px;
           font-weight: 600;
           line-height: 1.2;
         }
-        .tracker-card-target {
+        .day-log-card-target {
           font-size: 12px;
           color: var(--text-muted);
         }
-        .tracker-card-nomatch {
+        .day-log-card-nomatch {
           font-size: 11px;
           color: var(--accent);
         }
-        .tracker-card-add {
+        .day-log-card-add {
           justify-content: center;
           border-style: dashed;
           color: var(--text-muted);
           box-shadow: none;
         }
-        .tracker-card-add-icon {
+        .day-log-card-add-icon {
           font-size: 28px;
           line-height: 1;
         }
-        .tracker-editor-wrap {
+        .day-log-toast {
+          position: sticky;
+          bottom: var(--space-3);
+          align-self: center;
+          display: flex;
+          align-items: center;
+          gap: var(--space-3);
+          background: var(--surface-raised);
+          border: 1px solid var(--border);
+          border-radius: 999px;
+          padding: var(--space-2) var(--space-4);
+          font-size: 13px;
+          box-shadow: var(--shadow-md);
+        }
+        .day-log-toast button {
+          background: none;
+          border: none;
+          color: var(--accent);
+          font-weight: 600;
+          cursor: pointer;
+          padding: 0;
+        }
+        .day-log-editor-wrap {
           display: flex;
           flex-direction: column;
           gap: var(--space-3);
         }
-        .tracker-same-as-last {
+        .day-log-same-as-last {
           align-self: flex-start;
           font-size: 13px;
         }
-        .tracker-skip-btn {
+        .day-log-skip-btn {
           align-self: center;
           background: none;
           border: none;
@@ -517,9 +600,6 @@ export default function SessionTrackerPage() {
           cursor: pointer;
           padding: 0;
         }
-        /* Shared classes for the borrowed-style children SetEditor and
-           MachinePicker (neither ships its own <style> - see their file
-           comments). This page is now their only mount point. */
         .log-status-muted {
           color: var(--text-muted);
           font-size: 14px;

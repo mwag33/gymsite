@@ -1,139 +1,87 @@
-// Today's focus card. Now driven by the merged DaySessionView (see
-// mergeSessions.ts) instead of a single PlanDoc session, since a day can hold
-// zero, one, or several tracked sessions plus an unaccepted suggestion.
-// Quieter state for rest days per the plan's visual-polish guidance (recede,
-// no status dot).
+// Today's focus card. Driven by today's DayView (see daySessionsRange.ts)
+// plus its DaySession doc, if one exists yet - a day with no doc shows its
+// weeklyFocusPattern default as an unconfirmed suggestion. Quieter state for
+// rest days per the plan's visual-polish guidance (recede, no status dot).
 import { useNavigate } from "react-router-dom";
 import type { ReactNode } from "react";
-import type { DaySessionView } from "./mergeSessions";
+import type { DaySession } from "../../lib/types";
+import type { DayView } from "./daySessionsRange";
 import { FOCUS_LABELS } from "./planFocus";
-import { FocusBadge } from "./focusIcons";
+import { FocusIcon } from "./focusIcons";
 import { FOCUS_IMAGE } from "./focusImages";
 import { FocusTags, FOCUS_TAGS_STYLES } from "./FocusTags";
 import { deriveSessionFocusTags } from "./deriveFocus";
+import { computeDaySessionStatus } from "../tracking/dayActions";
 
 interface TodayHeroProps {
-  today: DaySessionView;
+  date: string;
+  view: DayView;
+  session: DaySession | undefined;
 }
 
-function renderContent(today: DaySessionView, navigate: (path: string) => void): ReactNode {
-  const { tracked, unacceptedSuggestion } = today;
-
-  if (tracked.length === 0 && !unacceptedSuggestion) {
-    return (
-      <div className="today-hero card today-hero-empty">
-        <p>No session scheduled for today yet.</p>
-      </div>
-    );
-  }
-
-  if (tracked.length === 0 && unacceptedSuggestion?.focus === "rest") {
-    return (
-      <div className="today-hero-rest">
-        <FocusBadge session={unacceptedSuggestion} size={22} muted />
-        <div>
+function renderContent(date: string, view: DayView, session: DaySession | undefined, navigate: (path: string) => void): ReactNode {
+  if (!session) {
+    if (view.focus === "rest") {
+      return (
+        <div className="today-hero-rest">
+          <FocusIcon focus="rest" width={22} height={22} />
           <span className="today-hero-rest-label">Rest day</span>
-          {unacceptedSuggestion.note && <p className="today-hero-rest-note">{unacceptedSuggestion.note}</p>}
         </div>
-      </div>
-    );
-  }
-
-  if (tracked.length > 1) {
-    return (
-      <div className="today-hero-stack">
-        {tracked.map((session) => {
-          const tags = deriveSessionFocusTags(session);
-          return (
-            <button
-              key={session.id}
-              type="button"
-              className="today-hero card today-hero-stacked-item"
-              onClick={() => navigate(`/session/${session.id}`)}
-            >
-              <div className="today-hero-heading">
-                <span className="today-hero-eyebrow">{session.status === "done" ? "Done" : "In progress"}</span>
-                <FocusTags categories={tags.categories} iconSize={22} />
-              </div>
-            </button>
-          );
-        })}
-      </div>
-    );
-  }
-
-  if (tracked.length === 1) {
-    const session = tracked[0];
-    const tags = deriveSessionFocusTags(session);
-    const exerciseNames = session.exercises.slice(0, 3).map((ex) => ex.name);
-    // "Actual overrides planned": the photo matches what was actually logged
-    // (primary derived category), not the session's frozen creation-time
-    // focus - falls back to that frozen focus only while nothing's logged yet,
-    // and shows no photo at all for a still-empty ad hoc session.
-    const image = tags.categories.length > 0 ? FOCUS_IMAGE[tags.categories[0]] : FOCUS_IMAGE[session.focus];
+      );
+    }
+    const suggestionImage = FOCUS_IMAGE[view.focus];
     return (
       <div className="today-hero card">
-        {image && <img src={image} alt="" className="today-hero-image" />}
+        {suggestionImage && <img src={suggestionImage} alt="" className="today-hero-image" />}
         <div className="today-hero-header">
+          <FocusIcon focus={view.focus} width={28} height={28} />
           <div className="today-hero-heading">
-            <span className="today-hero-eyebrow">
-              Today · {session.status === "done" ? "Done" : "In progress"}
-            </span>
-            <FocusTags categories={tags.categories} muscles={tags.muscles} iconSize={28} />
+            <span className="today-hero-eyebrow">Today</span>
+            <h2 className="today-hero-focus">{FOCUS_LABELS[view.focus]}</h2>
           </div>
         </div>
-        <p className="today-hero-sub">
-          {session.exercises.length === 0
-            ? "No exercises yet."
-            : `${session.exercises.length} exercise${session.exercises.length === 1 ? "" : "s"} · ${exerciseNames.join(", ")}${session.exercises.length > exerciseNames.length ? "…" : ""}`}
-        </p>
-        <button type="button" className="btn btn-primary today-hero-cta" onClick={() => navigate(`/session/${session.id}`)}>
-          {session.status === "done" ? "Review session" : "Continue logging"}
+        <p className="today-hero-sub">Nothing logged yet.</p>
+        <button type="button" className="btn btn-primary today-hero-cta" onClick={() => navigate(`/day/${date}`)}>
+          Start logging
         </button>
       </div>
     );
   }
 
-  // tracked.length === 0 but there's a non-rest unaccepted suggestion.
-  const suggestion = unacceptedSuggestion!;
-  const exerciseNames = (suggestion.exercises ?? []).slice(0, 3).map((ex) => ex.name);
-  const suggestionImage = FOCUS_IMAGE[suggestion.focus];
+  const tags = deriveSessionFocusTags(session);
+  const status = computeDaySessionStatus(session.exercises);
+  const exerciseNames = session.exercises.slice(0, 3).map((ex) => ex.name);
+  // "Actual overrides planned": the photo matches what was actually logged
+  // (primary derived category), not the day's assigned focus - falls back to
+  // that focus only while nothing's logged yet.
+  const image = tags.categories.length > 0 ? FOCUS_IMAGE[tags.categories[0]] : FOCUS_IMAGE[session.focus];
   return (
     <div className="today-hero card">
-      {suggestionImage && <img src={suggestionImage} alt="" className="today-hero-image" />}
+      {image && <img src={image} alt="" className="today-hero-image" />}
       <div className="today-hero-header">
-        <FocusBadge session={suggestion} size={36} />
         <div className="today-hero-heading">
-          <span className="today-hero-eyebrow">Today</span>
-          <h2 className="today-hero-focus">{FOCUS_LABELS[suggestion.focus]}</h2>
+          <span className="today-hero-eyebrow">Today · {status === "done" ? "Done" : "In progress"}</span>
+          <FocusTags categories={tags.categories} muscles={tags.muscles} iconSize={28} />
         </div>
       </div>
-
-      {suggestion.exercises === null ? (
-        <p className="today-hero-sub">Exercises for this session haven't been generated yet.</p>
-      ) : exerciseNames.length > 0 ? (
-        <p className="today-hero-sub">
-          {suggestion.exercises.length} exercise{suggestion.exercises.length === 1 ? "" : "s"} ·{" "}
-          {exerciseNames.join(", ")}
-          {(suggestion.exercises?.length ?? 0) > exerciseNames.length ? "…" : ""}
-        </p>
-      ) : (
-        <p className="today-hero-sub">No exercises planned for today.</p>
-      )}
-
-      <button type="button" className="btn btn-primary today-hero-cta" onClick={() => navigate("/log")}>
-        Start logging
+      <p className="today-hero-sub">
+        {session.exercises.length === 0
+          ? "No exercises yet."
+          : `${session.exercises.length} exercise${session.exercises.length === 1 ? "" : "s"} · ${exerciseNames.join(", ")}${session.exercises.length > exerciseNames.length ? "…" : ""}`}
+      </p>
+      <button type="button" className="btn btn-primary today-hero-cta" onClick={() => navigate(`/day/${date}`)}>
+        {status === "done" ? "Review session" : "Continue logging"}
       </button>
     </div>
   );
 }
 
-export default function TodayHero({ today }: TodayHeroProps) {
+export default function TodayHero({ date, view, session }: TodayHeroProps) {
   const navigate = useNavigate();
 
   return (
     <>
-      {renderContent(today, navigate)}
+      {renderContent(date, view, session, navigate)}
 
       <style>{`
         ${FOCUS_TAGS_STYLES}
@@ -143,18 +91,6 @@ export default function TodayHero({ today }: TodayHeroProps) {
           gap: var(--space-3);
           background: var(--accent-surface);
           border-color: var(--accent);
-        }
-        .today-hero-stack {
-          display: flex;
-          flex-direction: column;
-          gap: var(--space-3);
-        }
-        .today-hero-stacked-item {
-          flex-direction: row;
-          align-items: center;
-          gap: var(--space-3);
-          text-align: left;
-          cursor: pointer;
         }
         .today-hero-image {
           display: block;
@@ -190,19 +126,12 @@ export default function TodayHero({ today }: TodayHeroProps) {
           font-size: 22px;
           font-weight: 700;
         }
-        .today-hero-stacked-item .focus-tags-item {
-          font-size: 17px;
-          font-weight: 700;
-        }
         .today-hero-sub {
           font-size: 14px;
           color: var(--text-muted);
         }
         .today-hero-cta {
           width: 100%;
-        }
-        .today-hero-empty {
-          color: var(--text-muted);
         }
         .today-hero-rest {
           display: flex;
@@ -214,10 +143,6 @@ export default function TodayHero({ today }: TodayHeroProps) {
         .today-hero-rest-label {
           font-size: 13px;
           font-weight: 600;
-          color: var(--text-muted);
-        }
-        .today-hero-rest-note {
-          font-size: 13px;
           color: var(--text-muted);
         }
       `}</style>

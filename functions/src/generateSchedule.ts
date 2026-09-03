@@ -3,15 +3,9 @@ import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { FieldValue, Timestamp } from "firebase-admin/firestore";
 import { db } from "./admin";
 import { checkAndConsumeAiQuota, refundAiQuota } from "./quota";
-import {
-  generateTrainingSchedule,
-  geminiApiKey,
-  MODEL_ID,
-  type ScheduleConstraint,
-} from "./gemini";
-import { addDaysToDateKey, compareDateKeys, diffDaysBetweenDateKeys, localDateKey } from "./dateUtils";
-import { computeExerciseHorizon, computeProtectedWindow } from "./planEngine";
-import type { FeatureFlagsDoc, PlanDoc, Session, UserSettings } from "./types";
+import { generateTrainingSchedule, geminiApiKey } from "./gemini";
+import { addDaysToDateKey, localDateKey } from "./dateUtils";
+import type { DraftDay, FeatureFlagsDoc, UserSettings } from "./types";
 
 interface GenerateScheduleRequest {
   goal: string;
@@ -26,102 +20,13 @@ interface GenerateScheduleRequest {
   weekStartsOn?: number;
 }
 
-// Archived plans live under `plans/current/history/{planId}` - see
-// firestore.rules for why (even-segment subcollection requirement).
-function historyCollection(uid: string) {
-  return db.collection(`users/${uid}/plans/current/history`);
-}
-
-function nextPlanId(current: string | undefined): string {
-  const n = current ? Number(current) : NaN;
-  return String(Number.isFinite(n) ? n + 1 : 1);
-}
-
 /**
- * A session is a fixed constraint on a schedule refresh if it falls in the
- * protected window (next 2 upcoming training-focus sessions, plus any rest
- * days interleaved before them) or if it's been manually locked by the user
- * via updateSession - either way the AI must reproduce it exactly, not treat
- * it as a gap to fill. Exported for reuse by regeneratePlan.ts, which needs
- * the identical constraint set for its own schedule-refresh call.
- */
-export function computeScheduleConstraints(sessions: Session[], todayKey: string): Session[] {
-  const protectedWindow = computeProtectedWindow(sessions, todayKey);
-  const protectedIds = new Set(protectedWindow.map((s) => s.id));
-  const lockedUpcoming = sessions.filter(
-    (s) => s.locked && s.date >= todayKey && !protectedIds.has(s.id)
-  );
-  return [...protectedWindow, ...lockedUpcoming];
-}
-
-export interface RunScheduleGenerationParams {
-  goal: string;
-  experience: string;
-  daysPerWeek: number;
-  sessionLengthMinutes: number;
-  recentWorkoutSummary: string;
-  userNotes: string;
-  todayKey: string;
-  /** Sessions that must be preserved exactly - see computeScheduleConstraints. */
-  constraints: Session[];
-}
-
-/**
- * Core schedule-generation logic, shared by the `generateSchedule` callable
- * (below) and `regeneratePlan.ts`. Does not touch quota or Firestore - the
- * caller owns both, since the two callers reserve/refund quota differently
- * (1 unit here, 2 up front in regeneratePlan.ts).
- */
-export async function runScheduleGeneration(params: RunScheduleGenerationParams): Promise<Session[]> {
-  const fixedDays: ScheduleConstraint[] = params.constraints.map((s) => ({
-    dayOffset: diffDaysBetweenDateKeys(params.todayKey, s.date),
-    focus: s.focus,
-    note: s.note,
-  }));
-
-  const generated = await generateTrainingSchedule({
-    goal: params.goal,
-    experience: params.experience,
-    daysPerWeek: params.daysPerWeek,
-    sessionLengthMinutes: params.sessionLengthMinutes,
-    recentWorkoutSummary: params.recentWorkoutSummary,
-    userNotes: params.userNotes,
-    fixedDays,
-  });
-
-  const merged = new Map<number, Session>();
-  for (const day of generated.days) {
-    const date = addDaysToDateKey(params.todayKey, day.dayOffset);
-    merged.set(day.dayOffset, {
-      id: randomUUID(),
-      date,
-      focus: day.focus,
-      note: day.note,
-      exercises: day.focus === "rest" ? [] : null,
-      status: "upcoming",
-      locked: false,
-      source: "ai_schedule",
-      loggedAt: null,
-      swappedFocus: null,
-      rescheduledFromSessionId: null,
-    });
-  }
-  // Constraints always win at their offset - never trust Gemini's echoed
-  // copy of a fixed day, only its placement of the days around it.
-  fixedDays.forEach((f, i) => merged.set(f.dayOffset, params.constraints[i]));
-
-  return Array.from(merged.values()).sort((a, b) => compareDateKeys(a.date, b.date));
-}
-
-/**
- * Generates (onboarding, no current plan) or refreshes (any later call - the
- * periodic ~21-day refresh, wired client-side) the ~28-day schedule. Exactly
- * one Gemini call: exercises are always left null/[] here and filled
- * separately by generateExercisesForWeek's rolling horizon fill, except for
- * constrained sessions carried over verbatim (which may already have
- * exercises from before). See regeneratePlan.ts for the explicit/drift path
- * that also immediately re-fills exercises for the near-term unlocked
- * portion.
+ * Onboarding-only, one-time call: generates a single 7-day draft week (day 0
+ * = today) that becomes both the reviewed first week and, once the wizard
+ * finishes, the repeating UserProfile.weeklyFocusPattern. Nothing is
+ * persisted to Firestore here beyond the user's basic profile fields - the
+ * draft week itself lives in the client's local state for the rest of the
+ * wizard (see frontend/src/pages/onboarding/OnboardingFlow.tsx).
  */
 export const generateSchedule = onCall<GenerateScheduleRequest>(
   { secrets: [geminiApiKey] },
@@ -144,17 +49,9 @@ export const generateSchedule = onCall<GenerateScheduleRequest>(
     await checkAndConsumeAiQuota(uid);
 
     const userSnap = await db.doc(`users/${uid}`).get();
-    const settings = userSnap.data()?.settings as UserSettings | undefined;
-    const timezone = settings?.timezone || "UTC";
+    const existingSettings = userSnap.data()?.settings as UserSettings | undefined;
+    const timezone = existingSettings?.timezone || "UTC";
     const todayKey = localDateKey(new Date(), timezone);
-
-    const currentPlanRef = db.doc(`users/${uid}/plans/current`);
-    const currentPlanSnap = await currentPlanRef.get();
-    const currentPlan = currentPlanSnap.exists ? (currentPlanSnap.data() as PlanDoc) : null;
-
-    const constraints = currentPlan
-      ? computeScheduleConstraints(currentPlan.sessions, todayKey)
-      : [];
 
     const userNotes = [
       input.equipmentNotes && `equipment: ${input.equipmentNotes}`,
@@ -164,42 +61,28 @@ export const generateSchedule = onCall<GenerateScheduleRequest>(
       .filter(Boolean)
       .join("\n");
 
-    // See generateInitialPlan.ts's historical comment (same reasoning): the
-    // quota unit is reserved before the Gemini call, so a failure that never
-    // produced a schedule must refund it.
-    let sessions: Session[];
+    let days: DraftDay[];
     try {
-      sessions = await runScheduleGeneration({
+      const generated = await generateTrainingSchedule({
         goal: input.goal,
         experience: input.experience,
         daysPerWeek: input.daysPerWeek,
         sessionLengthMinutes: input.sessionLengthMinutes,
-        recentWorkoutSummary: currentPlan
-          ? "Existing plan being refreshed - see fixed days for what must be preserved."
-          : "No prior schedule yet - this is the user's first plan.",
         userNotes,
-        todayKey,
-        constraints,
       });
+      days = generated.days.map((d) => ({
+        id: randomUUID(),
+        date: addDaysToDateKey(todayKey, d.dayOffset),
+        focus: d.focus,
+        note: d.note,
+        exercises: null,
+      }));
     } catch (err) {
       await refundAiQuota(uid);
       throw err;
     }
 
     const now = Timestamp.now();
-    const plan: PlanDoc = {
-      planId: nextPlanId(currentPlan?.planId),
-      timezone,
-      scheduleGeneratedAt: now,
-      scheduleModelVersion: MODEL_ID,
-      exercisesModelVersion: currentPlan?.exercisesModelVersion ?? null,
-      frequencyPerWeek: input.daysPerWeek,
-      exerciseHorizon: computeExerciseHorizon(sessions, todayKey),
-      needsScheduleRefresh: false,
-      sessions,
-      lastSweepAt: now,
-    };
-
     const settingsUpdate: Partial<UserSettings> = {
       units: input.units ?? "metric",
       weekStartsOn: input.weekStartsOn ?? 1,
@@ -218,18 +101,8 @@ export const generateSchedule = onCall<GenerateScheduleRequest>(
     if (input.gymId) {
       userUpdate.homeGymIds = FieldValue.arrayUnion(input.gymId);
     }
-
-    // Archive the outgoing plan and write the new one together, same
-    // pattern as recalculatePlan.ts, so a partial failure never leaves
-    // "current" overwritten without a backup.
-    const batch = db.batch();
-    if (currentPlan) {
-      batch.set(historyCollection(uid).doc(), currentPlan);
-    }
-    batch.set(currentPlanRef, plan);
-    await batch.commit();
     await db.doc(`users/${uid}`).set(userUpdate, { merge: true });
 
-    return plan;
+    return { days };
   }
 );

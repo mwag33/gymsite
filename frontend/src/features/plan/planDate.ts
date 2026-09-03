@@ -72,3 +72,23 @@ export function addDaysToKey(dateStr: string, days: number): string {
   d.setDate(d.getDate() + days);
   return toLocalDateKey(d);
 }
+
+/** The "YYYY-MM-DD" key for the first day of the week containing `dateStr`
+ * (0=Sunday..6=Saturday convention, matching UserSettings.weekStartsOn). */
+export function startOfWeekKey(dateStr: string, weekStartsOn = 1): string {
+  const day = parseLocalDateKey(dateStr).getDay();
+  const diff = (day - weekStartsOn + 7) % 7;
+  return addDaysToKey(dateStr, -diff);
+}
+
+/** The "YYYY-MM-DD" key for the first day of the month containing `dateStr`. */
+export function startOfMonthKey(dateStr: string): string {
+  const d = parseLocalDateKey(dateStr);
+  return toLocalDateKey(new Date(d.getFullYear(), d.getMonth(), 1));
+}
+
+/** Number of days in the month containing `dateStr`. */
+export function daysInMonth(dateStr: string): number {
+  const d = parseLocalDateKey(dateStr);
+  return new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+}

@@ -4,13 +4,11 @@ import { db } from "./admin";
 import type { AiQuotaDoc } from "./types";
 
 const WINDOW_MS = 24 * 60 * 60 * 1000;
-// The plan-redesign's quota model (see functions/src/regeneratePlan.ts and
-// the architecture plan doc) only needs ~1 call/week under realistic usage,
-// so 5/day was originally sized as a generous ceiling - but during active
-// use/testing, onboarding alone spends 2 (schedule + first exercise fill),
-// and a couple of retries burns through 5 fast. Raised for headroom; the
-// billing circuit breaker (functions/src/billingCircuitBreaker.ts) remains
-// the real cost safety net, not this per-user counter.
+// AI generation only happens during onboarding now (schedule + first
+// exercise fill = 2 calls), so realistic usage is far below this ceiling -
+// raised mainly for retry headroom. The billing circuit breaker
+// (functions/src/billingCircuitBreaker.ts) remains the real cost safety
+// net, not this per-user counter.
 const DEFAULT_DAILY_LIMIT = 20;
 
 /**

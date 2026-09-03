@@ -20,8 +20,8 @@ interface BudgetNotification {
  *
  * This only flips `/system/featureFlags.aiGenerationEnabled` to false, which
  * every AI callable (`generateSchedule`, `generateExercisesForWeek`,
- * `regeneratePlan`) checks before calling Gemini. It deliberately does NOT
- * call the Cloud Billing API to
+ * `regenerateSessionExercises`) checks before calling Gemini. It deliberately
+ * does NOT call the Cloud Billing API to
  * disable billing on the project (which would take the whole app offline,
  * hosting included) - it just pauses the one feature that can run up an
  * open-ended AI bill, while login, logging workouts, and browsing existing

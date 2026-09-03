@@ -13,7 +13,7 @@ import {
 import type { NameType, ValueType } from "recharts/types/component/DefaultTooltipContent";
 import { db } from "../../lib/firebase";
 import { useAuth } from "../../contexts/AuthContext";
-import type { Machine, MachineCategory, PlanDoc, WorkoutLog } from "../../lib/types";
+import type { Machine, MachineCategory, WorkoutLog } from "../../lib/types";
 import { MACHINE_CATEGORIES } from "../../lib/types";
 import PlateRing from "../../components/PlateRing";
 import { addDays, computeStreak, startOfWeek, toDate } from "./progressUtils";
@@ -42,19 +42,12 @@ function ChartTooltip({ active, payload }: TooltipContentProps<ValueType, NameTy
 
 export default function OverviewStats() {
   const { user, profile } = useAuth();
-  const [plan, setPlan] = useState<PlanDoc | null | undefined>(undefined);
   const [logs, setLogs] = useState<WorkoutLog[] | null>(null);
   const [categoryCache, setCategoryCache] = useState<Record<string, MachineCategory>>({});
   const requestedCategories = useRef<Set<string>>(new Set());
 
   const weekStartsOn = profile?.settings?.weekStartsOn ?? 1;
-
-  useEffect(() => {
-    if (!user) return;
-    return onSnapshot(doc(db, "users", user.uid, "plans", "current"), (snap) => {
-      setPlan(snap.exists() ? (snap.data() as PlanDoc) : null);
-    });
-  }, [user]);
+  const pattern = profile?.weeklyFocusPattern ?? null;
 
   useEffect(() => {
     if (!user) return;
@@ -123,14 +116,18 @@ export default function OverviewStats() {
     }).length;
   }, [logs, trailing4WeekStart]);
 
-  const frequencyPerWeek = plan?.frequencyPerWeek ?? null;
-  const weekTarget = frequencyPerWeek ?? null;
-  const fourWeekTarget = frequencyPerWeek ? frequencyPerWeek * 4 : null;
-  const fourWeekAdherencePct = fourWeekTarget
-    ? Math.round((sessionsTrailing4Weeks / fourWeekTarget) * 100)
-    : null;
+  const weekTarget = profile?.daysPerWeek ?? null;
 
-  const streak = useMemo(() => computeStreak(plan?.sessions ?? []), [plan]);
+  const loggedDates = useMemo(() => {
+    const dates = new Set<string>();
+    for (const log of logs ?? []) {
+      const d = toDate(log.date);
+      if (!d) continue;
+      dates.add(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`);
+    }
+    return dates;
+  }, [logs]);
+  const streak = useMemo(() => computeStreak(loggedDates, pattern), [loggedDates, pattern]);
 
   const categoryData: CategoryPoint[] = useMemo(() => {
     const counts: Record<MachineCategory, number> = {
@@ -163,7 +160,7 @@ export default function OverviewStats() {
   const hasAnyLogs = (logs?.length ?? 0) > 0;
   const totalCategoryCount = categoryData.reduce((sum, p) => sum + p.count, 0);
 
-  if (logs === null || plan === undefined) {
+  if (logs === null) {
     return <div className="card">Loading progress...</div>;
   }
 
@@ -186,13 +183,10 @@ export default function OverviewStats() {
         {!hasAnyLogs && (
           <p className="progress-empty-sub">Log your first workout to see progress here.</p>
         )}
-        {fourWeekAdherencePct !== null && (
+        {hasAnyLogs && (
           <p className="overview-adherence-sub tnum">
-            Last 4 weeks: {sessionsTrailing4Weeks} of {fourWeekTarget} sessions ({fourWeekAdherencePct}% adherence)
+            Last 4 weeks: {sessionsTrailing4Weeks} session{sessionsTrailing4Weeks === 1 ? "" : "s"} logged
           </p>
-        )}
-        {plan === null && (
-          <p className="overview-adherence-sub">No active plan yet — adherence targets will appear once one is generated.</p>
         )}
       </div>
 

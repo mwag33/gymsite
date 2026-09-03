@@ -4,10 +4,11 @@
 import { httpsCallable, type FunctionsErrorCode } from "firebase/functions";
 import { functions } from "./firebase";
 import type {
+  DraftDay,
   ExperienceLevel,
   Goal,
-  PlanDoc,
-  Session,
+  PlanExercise,
+  TrainingPlanFocus,
   UserSettings,
 } from "./types";
 
@@ -48,10 +49,11 @@ export interface GenerateScheduleInput {
   weekStartsOn?: number;
 }
 
-/** Generates (or refreshes) the ~28-day schedule. Returns the full plan doc. */
-export async function generateSchedule(input: GenerateScheduleInput): Promise<PlanDoc> {
+/** Onboarding-only: generates the reviewed draft week (7 days, day 0 =
+ * today). Stateless - nothing is persisted beyond basic profile fields. */
+export async function generateSchedule(input: GenerateScheduleInput): Promise<{ days: DraftDay[] }> {
   try {
-    const call = httpsCallable<GenerateScheduleInput, PlanDoc>(functions, "generateSchedule");
+    const call = httpsCallable<GenerateScheduleInput, { days: DraftDay[] }>(functions, "generateSchedule");
     const result = await call(input);
     return result.data;
   } catch (err) {
@@ -60,6 +62,7 @@ export async function generateSchedule(input: GenerateScheduleInput): Promise<Pl
 }
 
 export interface GenerateExercisesForWeekInput {
+  days: { id: string; focus: TrainingPlanFocus }[];
   experience: ExperienceLevel;
   sessionLengthMinutes: number;
   gymId: string | null;
@@ -68,16 +71,12 @@ export interface GenerateExercisesForWeekInput {
   preferences?: string;
 }
 
-/**
- * Fills the next unfilled ~7-day slice of exercises starting at the plan's
- * current `exerciseHorizon` and advances it. No `days` input — the server
- * reads `users/{uid}/plans/current` itself. Returns the updated plan doc.
- */
+/** Onboarding-only: proposes exercises for the client-supplied draft week. */
 export async function generateExercisesForWeek(
   input: GenerateExercisesForWeekInput
-): Promise<PlanDoc> {
+): Promise<{ exercisesById: Record<string, PlanExercise[]> }> {
   try {
-    const call = httpsCallable<GenerateExercisesForWeekInput, PlanDoc>(
+    const call = httpsCallable<GenerateExercisesForWeekInput, { exercisesById: Record<string, PlanExercise[]> }>(
       functions,
       "generateExercisesForWeek"
     );
@@ -89,7 +88,8 @@ export async function generateExercisesForWeek(
 }
 
 export interface RegenerateSessionExercisesInput {
-  sessionId: string;
+  dayId: string;
+  focus: TrainingPlanFocus;
   experience: ExperienceLevel;
   sessionLengthMinutes: number;
   gymId: string | null;
@@ -98,56 +98,16 @@ export interface RegenerateSessionExercisesInput {
   preferences?: string;
 }
 
-/** Regenerates exercises for exactly one session (e.g. after a manual focus swap). */
+/** Onboarding-only: regenerates exercises for exactly one draft day. */
 export async function regenerateSessionExercises(
   input: RegenerateSessionExercisesInput
-): Promise<PlanDoc> {
+): Promise<{ exercises: PlanExercise[] }> {
   try {
-    const call = httpsCallable<RegenerateSessionExercisesInput, PlanDoc>(
+    const call = httpsCallable<RegenerateSessionExercisesInput, { exercises: PlanExercise[] }>(
       functions,
       "regenerateSessionExercises"
     );
     const result = await call(input);
-    return result.data;
-  } catch (err) {
-    wrapCallableError(err);
-  }
-}
-
-export interface UpdateSessionInput {
-  sessionId: string;
-  patch?: Partial<Pick<Session, "focus" | "note" | "exercises">>;
-  lock?: boolean;
-  unlock?: boolean;
-}
-
-/** Patches a single session by id (never a whole-week array). */
-export async function updateSession(input: UpdateSessionInput): Promise<void> {
-  const call = httpsCallable<UpdateSessionInput, { success: boolean }>(functions, "updateSession");
-  await call(input);
-}
-
-export interface MoveSessionInput {
-  sessionId: string;
-  targetDate: string;
-}
-
-/** Proactively moves an upcoming session onto an empty (rest) day; the
- * source day becomes rest. Rejects if the target day already has its own
- * session - see functions/src/moveSession.ts. */
-export async function moveSession(input: MoveSessionInput): Promise<void> {
-  const call = httpsCallable<MoveSessionInput, { success: boolean }>(functions, "moveSession");
-  await call(input);
-}
-
-/**
- * Explicit/drift-prompted plan regeneration only — there is no more
- * automatic per-log AI regeneration. Returns the refreshed plan doc.
- */
-export async function regeneratePlan(): Promise<PlanDoc> {
-  try {
-    const call = httpsCallable<void, PlanDoc>(functions, "regeneratePlan");
-    const result = await call();
     return result.data;
   } catch (err) {
     wrapCallableError(err);

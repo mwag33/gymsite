@@ -56,51 +56,29 @@ service cloud.firestore {
         }
       }
 
-      // ---------- /users/{uid}/trackedSessions/{sessionId} ----------
-      // Unlike workoutLogs above, this collection is the client-owned,
-      // mutable record of what a user is actually tracking: id-keyed (not
-      // date-keyed, so multiple sessions/day are possible), user-creatable
-      // on any date, and directly editable to support per-field autosave
-      // without a Cloud Function round-trip. This deliberately trades away
-      // the append-only guarantee workoutLogs has - accepted as the cost of
-      // fast, serverless autosave for a fresh/demo dataset. `date`,
-      // `sourcePlanSessionId`, `createdAt` and `gymId` are immutable after
-      // create: a reschedule creates a new tracked session rather than
-      // mutating an existing one's date.
-      match /trackedSessions/{sessionId} {
+      // ---------- /users/{uid}/daySessions/{date} ----------
+      // The single client-owned, mutable record of a calendar day - doc ID
+      // is the "YYYY-MM-DD" date itself (one session per day, replacing the
+      // old plans/current + trackedSessions split), directly editable to
+      // support per-field autosave and inline focus/move edits without a
+      // Cloud Function round-trip. This deliberately trades away the
+      // append-only guarantee workoutLogs has - accepted as the cost of
+      // fast, serverless editing for a fresh/demo dataset. `createdAt` and
+      // `gymId` are immutable after create; moving a day to another date is
+      // a client-side delete-and-recreate, not a mutation of `date`.
+      match /daySessions/{date} {
         allow read: if isOwner(uid);
-        allow create: if isOwner(uid) && isValidNewTrackedSession(request.resource.data);
-        allow update: if isOwner(uid) && isValidTrackedSessionUpdate();
+        allow create: if isOwner(uid) && isValidNewDaySession(date, request.resource.data);
+        allow update: if isOwner(uid) && isValidDaySessionUpdate();
         allow delete: if isOwner(uid);
-      }
-
-      // ---------- /users/{uid}/plans ----------
-      // Generated and written only by Cloud Functions callables and triggers
-      // (Admin SDK) - schedule/exercise generation, the deterministic
-      // rebalance engine, and the hourly sweep. Owner may read.
-      //
-      // Note: Firestore document paths must alternate collection/document
-      // and therefore need an even number of segments. "history" is
-      // modeled as a subcollection of the `current` document (not a
-      // sibling document) so that /users/{uid}/plans/current/
-      // history/{planId} resolves to a real document (6 segments).
-      match /plans/current {
-        allow read: if isOwner(uid);
-        allow write: if false;
-
-        match /history/{planId} {
-          allow read: if isOwner(uid);
-          allow write: if false;
-        }
       }
     }
 
     function isValidWorkoutLog(data) {
-      let allowedKeys = ['mode', 'gymId', 'date', 'bodyParts', 'exercises', 'createdAt', 'plannedSessionId'];
+      let allowedKeys = ['mode', 'gymId', 'date', 'bodyParts', 'exercises', 'createdAt'];
       return data.keys().hasOnly(allowedKeys)
         && data.mode in ['simple', 'detailed']
-        && data.date is timestamp
-        && (data.plannedSessionId == null || data.plannedSessionId is string);
+        && data.date is timestamp;
     }
 
     // NOTE: the rules language has no loop/lambda construct (no .map/.filter
@@ -111,33 +89,25 @@ service cloud.firestore {
     // each exercise/set to range-check reps/weightKg. That's enforced
     // client-side (SetEditor's stepper bounds); a malicious client with
     // direct Firestore access could still write an out-of-range set.
-    function isValidNewTrackedSession(data) {
-      let allowedKeys = ['date', 'focus', 'note', 'gymId', 'exercises', 'status',
-                          'sourcePlanSessionId', 'createdAt', 'updatedAt', 'lastSyncedLogAt'];
+    function isValidNewDaySession(date, data) {
+      let allowedKeys = ['date', 'focus', 'gymId', 'exercises', 'createdAt', 'updatedAt'];
       let allowedFocus = ['chest', 'back', 'legs', 'core', 'cardio', 'upper_body', 'other', 'rest'];
       return data.keys().hasOnly(allowedKeys)
-        && data.date is string && data.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && data.date == date && data.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
         && data.focus in allowedFocus
-        && data.note is string && data.note.size() <= 500
         && (data.gymId == null || data.gymId is string)
-        && data.status in ['in_progress', 'done']
-        && (data.sourcePlanSessionId == null || data.sourcePlanSessionId is string)
         && data.createdAt is timestamp
         && data.updatedAt is timestamp
-        && data.lastSyncedLogAt == null
         && data.exercises is list && data.exercises.size() <= 20;
     }
 
-    function isValidTrackedSessionUpdate() {
-      let allowedChangeKeys = ['exercises', 'status', 'note', 'updatedAt', 'lastSyncedLogAt', 'focus'];
+    function isValidDaySessionUpdate() {
+      let allowedChangeKeys = ['exercises', 'updatedAt', 'focus'];
       let data = request.resource.data;
       let allowedFocus = ['chest', 'back', 'legs', 'core', 'cardio', 'upper_body', 'other', 'rest'];
       return data.diff(resource.data).affectedKeys().hasOnly(allowedChangeKeys)
         && data.focus in allowedFocus
-        && data.note is string && data.note.size() <= 500
-        && data.status in ['in_progress', 'done']
         && data.updatedAt is timestamp
-        && (data.lastSyncedLogAt == null || data.lastSyncedLogAt is timestamp)
         && data.exercises is list && data.exercises.size() <= 20;
     }
 

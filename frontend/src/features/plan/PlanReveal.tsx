@@ -1,61 +1,54 @@
 import { useState } from "react";
-import type { Session } from "../../lib/types";
+import type { DraftDay } from "../../lib/types";
 import { weekdayLabel } from "./planDate";
 import { FOCUS_LABELS } from "./planFocus";
 import PlanDayExercises from "./PlanDayExercises";
 import PlanEditor from "./PlanEditor";
 
 interface PlanRevealProps {
-  // Onboarding's first-week slice only — never the full 28-day schedule (see
-  // OnboardingFlow.tsx's schedule-review/exercise-review phases). Nothing
-  // outside onboarding uses this component; Home reads sessions directly via
-  // TodayHero/MonthAgenda instead.
-  sessions: Session[];
+  // Onboarding's draft week only (see OnboardingFlow.tsx's schedule-review/
+  // exercise-review phases). Nothing outside onboarding uses this component.
+  days: DraftDay[];
   onAccept?: () => void;
   onAdjust?: () => void;
-  // Lets the parent (onboarding, which owns the local plan state) reflect an
-  // edit immediately rather than waiting on its own subscription.
-  onSessionsChange?: (sessions: Session[]) => void;
+  // Lets the parent (onboarding, which owns the local draft state) reflect
+  // an edit immediately rather than waiting on its own subscription.
+  onDaysChange?: (days: DraftDay[]) => void;
 }
 
-export default function PlanReveal({ sessions, onAccept, onAdjust, onSessionsChange }: PlanRevealProps) {
+export default function PlanReveal({ days, onAccept, onAdjust, onDaysChange }: PlanRevealProps) {
   const [editing, setEditing] = useState(false);
-  const sortedSessions = [...sessions].sort((a, b) => a.date.localeCompare(b.date));
+  const sortedDays = [...days].sort((a, b) => a.date.localeCompare(b.date));
 
   function handleAdjust() {
     setEditing(true);
     onAdjust?.();
   }
 
-  function handleSaved(updated: Session[]) {
+  function handleSaved(updated: DraftDay[]) {
     setEditing(false);
-    onSessionsChange?.(updated);
+    onDaysChange?.(updated);
   }
 
   if (editing) {
-    return (
-      <PlanEditor sessions={sessions} onSaved={handleSaved} onCancel={() => setEditing(false)} />
-    );
+    return <PlanEditor days={days} onSaved={handleSaved} onCancel={() => setEditing(false)} />;
   }
 
   return (
     <div className="plan-reveal">
       <div className="plan-reveal-days">
-        {sortedSessions.map((session) => {
-          const isTraining = session.focus !== "rest";
+        {sortedDays.map((day) => {
+          const isTraining = day.focus !== "rest";
           return (
-            <div
-              key={session.id}
-              className={"card plan-reveal-day" + (isTraining ? " plan-reveal-day-active" : "")}
-            >
+            <div key={day.id} className={"card plan-reveal-day" + (isTraining ? " plan-reveal-day-active" : "")}>
               <div className="plan-reveal-day-header">
-                <span className="plan-reveal-day-name">{weekdayLabel(session.date)}</span>
+                <span className="plan-reveal-day-name">{weekdayLabel(day.date)}</span>
                 <span className={"plan-reveal-focus" + (isTraining ? " plan-reveal-focus-active" : "")}>
-                  {FOCUS_LABELS[session.focus]}
+                  {FOCUS_LABELS[day.focus]}
                 </span>
               </div>
-              {session.note && <p className="plan-reveal-note">{session.note}</p>}
-              <PlanDayExercises exercises={session.exercises ?? undefined} />
+              {day.note && <p className="plan-reveal-note">{day.note}</p>}
+              <PlanDayExercises exercises={day.exercises ?? undefined} />
             </div>
           );
         })}

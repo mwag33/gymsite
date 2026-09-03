@@ -44,6 +44,13 @@ export interface UserProfile {
   homeGymIds: string[];
   settings: UserSettings;
   emailVerified: boolean;
+  // The repeating default focus for each weekday (index 0 = Sunday .. 6 =
+  // Saturday, matching UserSettings.weekStartsOn's convention), generated at
+  // onboarding. A day with no daySessions doc yet displays
+  // weeklyFocusPattern[date.getDay()] as its unconfirmed default; the doc
+  // only materializes once the user changes that day's type or logs
+  // something on it. Null until onboarding completes.
+  weeklyFocusPattern: TrainingPlanFocus[] | null;
 }
 
 export interface Gym {
@@ -83,9 +90,6 @@ export interface WorkoutLog {
   bodyParts?: MachineCategory[];
   exercises?: ExerciseEntry[];
   createdAt: unknown;
-  // FK to Session.id, set once at creation. Null for a free-form log not tied
-  // to any scheduled session.
-  plannedSessionId: string | null;
 }
 
 export interface MachineStats {
@@ -135,55 +139,25 @@ export interface PlanExercise {
   note?: string;
 }
 
-export type SessionStatus = "upcoming" | "done" | "partial" | "skipped" | "swapped";
-export type SessionSource =
-  | "ai_schedule"
-  | "ai_exercises"
-  | "deterministic_reschedule"
-  | "manual_edit"
-  | "manual_reschedule";
-
-export interface Session {
-  id: string; // stable id, survives reschedules - the FK target for WorkoutLog.plannedSessionId
-  date: string; // "YYYY-MM-DD", user-local calendar date
+// A single day within onboarding's AI-generated draft week - never persisted
+// on its own, held in the wizard's local state and only materialized (via
+// materializeOnboardingWeek in dayActions.ts) into real
+// `daySessions` docs plus a UserProfile.weeklyFocusPattern once the user
+// finishes onboarding. `id` only needs to be stable within one onboarding
+// session (React keys, correlating a regenerate-exercises call to its row).
+export interface DraftDay {
+  id: string;
+  date: string; // "YYYY-MM-DD"
   focus: TrainingPlanFocus;
   note: string;
-  // null = outside the exercise horizon, [] = rest day, non-empty = ready to log
-  exercises: PlanExercise[] | null;
-  status: SessionStatus;
-  locked: boolean; // manual per-session lock, set via updateSession
-  source: SessionSource;
-  loggedAt?: unknown | null;
-  swappedFocus?: TrainingPlanFocus | null;
-  rescheduledFromSessionId?: string | null;
+  exercises: PlanExercise[] | null; // null = not generated yet
 }
 
-export interface PlanDoc {
-  planId: string;
-  timezone: string;
-  scheduleGeneratedAt: unknown;
-  scheduleModelVersion: string;
-  exercisesModelVersion: string | null;
-  frequencyPerWeek: number;
-  exerciseHorizon: string; // "YYYY-MM-DD"
-  needsScheduleRefresh: boolean;
-  sessions: Session[];
-  lastSweepAt: unknown;
-}
-
-// A TrackedSession is the client-owned, mutable record of what a user is
-// actually doing/did, as opposed to Session (above), which is only ever a
-// server-generated suggestion inside PlanDoc.sessions[]. Unlike Session,
-// TrackedSession is id-keyed (not date-keyed) so multiple sessions can exist
-// on the same calendar date, and it is user-creatable on any date (including
-// past dates) rather than only AI-generated. See firestore.rules for the
-// validation this trades an append-only guarantee for.
-export type TrackedSessionStatus = "in_progress" | "done";
 // "logged" does NOT imply sets.length > 0: a no-active-gym session (see
-// SessionTrackerPage's gymId === null category-tap flow) logs a bare
-// category with machineId: null and sets: []. Anything computing volume/sets
-// from TrackedExercise must check `status`, not `sets.length`, to know
-// whether an exercise was actually done.
+// the day page's gymId === null category-tap flow) logs a bare category with
+// machineId: null and sets: []. Anything computing volume/sets from
+// TrackedExercise must check `status`, not `sets.length`, to know whether an
+// exercise was actually done.
 export type TrackedExerciseStatus = "pending" | "logged" | "skipped";
 
 export interface TrackedExercise {
@@ -194,32 +168,34 @@ export interface TrackedExercise {
   machineCategory: MachineCategory;
   targetSets?: number;
   targetReps?: string;
-  // Carried over from PlanExercise.targetMuscles when accepting a suggestion,
-  // or best-effort from the machine catalog when a machine is picked. Absent
-  // on older docs and on custom machines with no catalog match - display-only,
-  // never required.
+  // Carried over from PlanExercise.targetMuscles when materializing an
+  // onboarding suggestion, or best-effort from the machine catalog when a
+  // machine is picked. Absent on custom machines with no catalog match -
+  // display-only, never required.
   targetMuscles?: MuscleGroup[];
   sets: SetEntry[];
   status: TrackedExerciseStatus;
+  // Stamped the first time this exercise crosses into status "logged" - the
+  // dedupe marker for the workoutLogs/machineStats sync (see
+  // dayActions.ts's syncLoggedExercise). Re-editing an
+  // already-logged exercise's sets later updates `sets` but must not re-fire
+  // the sync, or machineStats.totalSessions would inflate on every edit.
+  firstLoggedAt?: unknown | null;
 }
 
-export interface TrackedSession {
-  id: string;
-  date: string; // "YYYY-MM-DD", user-local calendar date
+// The single record of a calendar day, replacing the old
+// PlanDoc/Session/TrackedSession split: one mutable, date-keyed document per
+// day (doc ID = date), always editable, no accept-gating and no
+// plan-vs-actual bookkeeping. A day with no doc yet falls back to
+// UserProfile.weeklyFocusPattern for its default focus (see
+// dayFocusFor in dayActions.ts).
+export interface DaySession {
+  date: string; // "YYYY-MM-DD", user-local calendar date - also the doc ID
   focus: TrainingPlanFocus;
-  note: string;
   gymId: string | null;
   exercises: TrackedExercise[];
-  status: TrackedSessionStatus;
-  // FK to Session.id, set once at creation via the "accept a suggestion"
-  // flow. Null for a session the user created from scratch (ad hoc or
-  // backdated logging with no corresponding plan suggestion).
-  sourcePlanSessionId: string | null;
   createdAt: unknown; // Firestore Timestamp
   updatedAt: unknown; // Firestore Timestamp, bumped on every autosave write
-  // Last time the invisible workoutLogs sync event fired for this session
-  // (see useAutosaveTrackedSession) - null until the first set is saved.
-  lastSyncedLogAt: unknown | null;
 }
 
 export const MACHINE_CATEGORIES: { value: MachineCategory; label: string }[] = [

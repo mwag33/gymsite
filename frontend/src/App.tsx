@@ -1,5 +1,5 @@
 import { lazy, Suspense } from "react";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useParams } from "react-router-dom";
 import { AuthProvider } from "./contexts/AuthContext";
 import { ActiveGymProvider } from "./contexts/ActiveGymContext";
 import { ProtectedRoute } from "./components/ProtectedRoute";
@@ -14,15 +14,21 @@ import SignIn from "./pages/auth/SignIn";
 // of all shipping in the initial bundle for a mobile-first app.
 const OnboardingFlow = lazy(() => import("./pages/onboarding/OnboardingFlow"));
 const HomePage = lazy(() => import("./pages/home/HomePage"));
-const LogWorkoutPage = lazy(() => import("./pages/log/LogWorkoutPage"));
-const DayDetailPage = lazy(() => import("./pages/session/DayDetailPage"));
-const SessionTrackerPage = lazy(() => import("./pages/session/SessionTrackerPage"));
+const DayLogPage = lazy(() => import("./pages/session/DayLogPage"));
 const GymPage = lazy(() => import("./pages/gym/GymPage"));
 const ProgressPage = lazy(() => import("./pages/progress/ProgressPage"));
 const ProfilePage = lazy(() => import("./pages/profile/ProfilePage"));
 const ImpressumPage = lazy(() => import("./pages/legal/ImpressumPage"));
 const PrivacyPage = lazy(() => import("./pages/legal/PrivacyPage"));
 const NotFound = lazy(() => import("./pages/NotFound"));
+
+// The old /log/:date resolver used to disambiguate which tracked session to
+// open; there's exactly one daySessions doc per date now, so this just
+// forwards the date straight through to the merged day-log page.
+function RedirectToDay() {
+  const { date } = useParams<{ date: string }>();
+  return <Navigate to={`/day/${date}`} replace />;
+}
 
 export default function App() {
   return (
@@ -41,13 +47,15 @@ export default function App() {
                 <Route element={<OnboardingGate />}>
                   <Route element={<AppShell />}>
                     <Route index element={<HomePage />} />
-                    <Route path="/log" element={<LogWorkoutPage />} />
-                    <Route path="/log/:date" element={<LogWorkoutPage />} />
-                    <Route path="/day/:date" element={<DayDetailPage />} />
-                    <Route path="/session/:sessionId" element={<SessionTrackerPage />} />
+                    <Route path="/day/:date" element={<DayLogPage />} />
                     {/* MonthAgenda is now inline on Home (the IA collapse) - redirect
                         rather than 404 for any bookmarked/history /calendar URL. */}
                     <Route path="/calendar" element={<Navigate to="/" replace />} />
+                    {/* /log and /log/:date used to resolve which tracked session to
+                        open; there's exactly one session per day now, so /day/:date
+                        (today by default) replaces them directly. */}
+                    <Route path="/log" element={<Navigate to="/" replace />} />
+                    <Route path="/log/:date" element={<RedirectToDay />} />
                     <Route path="/progress" element={<ProgressPage />} />
                     <Route path="/gym" element={<GymPage />} />
                     <Route path="/profile" element={<ProfilePage />} />

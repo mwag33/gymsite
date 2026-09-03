@@ -1,23 +1,19 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useAuth } from "../../contexts/AuthContext";
 import { useActiveGym } from "../../contexts/ActiveGymContext";
 import {
   generateExercisesForWeek,
   generateSchedule,
-  updateSession,
   updateUserSettings,
   type GenerateExercisesForWeekInput,
   type GenerateScheduleInput,
 } from "../../lib/callables";
+import { materializeOnboardingWeek } from "../../features/tracking/dayActions";
 import PlanReveal from "../../features/plan/PlanReveal";
 import { EDITABLE_FOCUS_OPTIONS, FOCUS_LABELS } from "../../features/plan/planFocus";
 import { weekdayLabel } from "../../features/plan/planDate";
-import { GOAL_OPTIONS, type ExperienceLevel, type Goal, type PlanDoc, type TrainingPlanFocus } from "../../lib/types";
-
-// Onboarding's schedule-review step only reviews/edits the first 7 days of
-// the new ~28-day schedule chip-by-chip; the remaining ~21 days are accepted
-// as-generated (see plan doc "Onboarding adaptation").
-const REVIEWABLE_DAYS = 7;
+import { GOAL_OPTIONS, type DraftDay, type ExperienceLevel, type Goal, type TrainingPlanFocus } from "../../lib/types";
 
 type StepKey =
   | "goal"
@@ -63,6 +59,7 @@ const DAYS_OPTIONS = [2, 3, 4, 5, 6];
 const SESSION_OPTIONS = [30, 45, 60, 90];
 
 export default function OnboardingFlow() {
+  const { user } = useAuth();
   const { activeGym } = useActiveGym();
   const navigate = useNavigate();
 
@@ -76,11 +73,7 @@ export default function OnboardingFlow() {
   const [stepIndex, setStepIndex] = useState(0);
   const [microcopy, setMicrocopy] = useState<string | null>(null);
   const [phase, setPhase] = useState<Phase>("questions");
-  const [plan, setPlan] = useState<PlanDoc | null>(null);
-  // Local edits to the first week's focus chips, keyed by session id —
-  // persisted via updateSession right before exercise generation so the
-  // server-side fill reads the edited focuses, not the originally generated ones.
-  const [editedFocuses, setEditedFocuses] = useState<Record<string, TrainingPlanFocus>>({});
+  const [days, setDays] = useState<DraftDay[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [lastAction, setLastAction] = useState<"schedule" | "exercises">("schedule");
 
@@ -120,9 +113,8 @@ export default function OnboardingFlow() {
     setPhase("generating-schedule");
     setErrorMessage(null);
     try {
-      // The plan doc's `timezone` is copied from UserSettings at generation
-      // time, so this must complete before generateSchedule runs — only the
-      // client can supply the real IANA zone.
+      // The stored timezone is used for "day 0 = today" - only the client
+      // can supply the real IANA zone.
       await updateUserSettings({ timezone: Intl.DateTimeFormat().resolvedOptions().timeZone });
       const input: GenerateScheduleInput = {
         goal: goal as Goal,
@@ -135,8 +127,7 @@ export default function OnboardingFlow() {
         preferences: buildPreferences(reminders),
       };
       const result = await generateSchedule(input);
-      setPlan(result);
-      setEditedFocuses({});
+      setDays(result.days);
       setPhase("schedule-review");
     } catch (err) {
       setErrorMessage(err instanceof Error ? err.message : "Something went wrong generating your plan.");
@@ -144,32 +135,18 @@ export default function OnboardingFlow() {
     }
   }
 
-  function updateDayFocus(sessionId: string, focus: TrainingPlanFocus) {
-    setEditedFocuses((prev) => ({ ...prev, [sessionId]: focus }));
-    setPlan((prev) =>
-      prev
-        ? { ...prev, sessions: prev.sessions.map((s) => (s.id === sessionId ? { ...s, focus } : s)) }
-        : prev
-    );
+  function updateDayFocus(dayId: string, focus: TrainingPlanFocus) {
+    setDays((prev) => prev.map((d) => (d.id === dayId ? { ...d, focus } : d)));
   }
 
   async function submitExercises() {
-    if (!plan) return;
+    if (days.length === 0) return;
     setLastAction("exercises");
     setPhase("generating-exercises");
     setErrorMessage(null);
     try {
-      // Persist any schedule-review focus edits first — generateExercisesForWeek
-      // reads the plan doc itself, so the server only sees edits already saved.
-      const editedIds = Object.keys(editedFocuses);
-      if (editedIds.length > 0) {
-        await Promise.all(
-          editedIds.map((sessionId) =>
-            updateSession({ sessionId, patch: { focus: editedFocuses[sessionId] } })
-          )
-        );
-      }
       const input: GenerateExercisesForWeekInput = {
+        days: days.map((d) => ({ id: d.id, focus: d.focus })),
         experience: experience as ExperienceLevel,
         sessionLengthMinutes: sessionLengthMinutes as number,
         gymId: activeGym?.id ?? null,
@@ -178,7 +155,9 @@ export default function OnboardingFlow() {
         preferences: buildPreferences(wantsReminders),
       };
       const result = await generateExercisesForWeek(input);
-      setPlan(result);
+      setDays((prev) =>
+        prev.map((d) => (d.focus === "rest" ? { ...d, exercises: [] } : { ...d, exercises: result.exercisesById[d.id] ?? [] }))
+      );
       setPhase("exercise-review");
     } catch (err) {
       setErrorMessage(
@@ -186,6 +165,12 @@ export default function OnboardingFlow() {
       );
       setPhase("error");
     }
+  }
+
+  async function finishOnboarding() {
+    if (!user) return;
+    await materializeOnboardingWeek(user.uid, days, activeGym?.id ?? null);
+    navigate("/", { replace: true });
   }
 
   function selectGoal(value: Goal) {
@@ -271,21 +256,19 @@ export default function OnboardingFlow() {
     );
   }
 
-  if (phase === "schedule-review" && plan) {
-    const sortedSessions = [...plan.sessions].sort((a, b) => a.date.localeCompare(b.date));
-    const reviewableSessions = sortedSessions.slice(0, REVIEWABLE_DAYS);
+  if (phase === "schedule-review" && days.length > 0) {
+    const sortedDays = [...days].sort((a, b) => a.date.localeCompare(b.date));
     return (
       <div className="onboarding-screen">
         <h1 className="onboarding-reveal-title">Your weekly split</h1>
         <p className="onboarding-hint">
-          Tap a day to change its focus, or mark it a rest day. When it looks right, we'll
-          suggest specific exercises for each training day. The rest of your first month is
-          already scheduled — you can fine-tune it later from Home.
+          Tap a day to change its focus, or mark it a rest day. This week repeats going forward
+          - you can change any day's type anytime from Home.
         </p>
         <div className="onboarding-schedule-days">
-          {reviewableSessions.map((session) => (
-            <div key={session.id} className="card onboarding-schedule-day">
-              <span className="onboarding-schedule-day-name">{weekdayLabel(session.date)}</span>
+          {sortedDays.map((day) => (
+            <div key={day.id} className="card onboarding-schedule-day">
+              <span className="onboarding-schedule-day-name">{weekdayLabel(day.date)}</span>
               <div className="onboarding-schedule-chip-row">
                 {EDITABLE_FOCUS_OPTIONS.map((focus) => (
                   <button
@@ -293,9 +276,9 @@ export default function OnboardingFlow() {
                     type="button"
                     className={
                       "onboarding-schedule-chip" +
-                      (session.focus === focus ? " onboarding-schedule-chip-selected" : "")
+                      (day.focus === focus ? " onboarding-schedule-chip-selected" : "")
                     }
-                    onClick={() => updateDayFocus(session.id, focus)}
+                    onClick={() => updateDayFocus(day.id, focus)}
                   >
                     {FOCUS_LABELS[focus]}
                   </button>
@@ -316,24 +299,11 @@ export default function OnboardingFlow() {
     );
   }
 
-  if (phase === "exercise-review" && plan) {
-    const firstWeekSessions = [...plan.sessions]
-      .sort((a, b) => a.date.localeCompare(b.date))
-      .slice(0, REVIEWABLE_DAYS);
+  if (phase === "exercise-review" && days.length > 0) {
     return (
       <div className="onboarding-screen">
         <h1 className="onboarding-reveal-title">Your first week</h1>
-        <PlanReveal
-          sessions={firstWeekSessions}
-          onAccept={() => navigate("/", { replace: true })}
-          onSessionsChange={(updated) =>
-            setPlan((prev) => {
-              if (!prev) return prev;
-              const byId = new Map(updated.map((s) => [s.id, s]));
-              return { ...prev, sessions: prev.sessions.map((s) => byId.get(s.id) ?? s) };
-            })
-          }
-        />
+        <PlanReveal days={days} onAccept={() => void finishOnboarding()} onDaysChange={setDays} />
         <OnboardingStyles />
       </div>
     );

@@ -1,6 +1,5 @@
 import { useState } from "react";
-import { updateSession } from "../../lib/callables";
-import type { MachineCategory, MuscleGroup, PlanExercise, Session } from "../../lib/types";
+import type { DraftDay, MachineCategory, MuscleGroup, PlanExercise } from "../../lib/types";
 import { weekdayLabel } from "./planDate";
 import { FOCUS_LABELS } from "./planFocus";
 import { findCatalogMachine } from "../../lib/machineCatalog";
@@ -34,116 +33,87 @@ function emptyDraft(): NewExerciseDraft {
   return { name: "", sets: 3, reps: "8-12", muscles: [] };
 }
 
-function cloneSessions(sessions: Session[]): Session[] {
-  return sessions.map((s) => ({ ...s, exercises: (s.exercises ?? []).map((ex) => ({ ...ex })) }));
+function cloneDays(days: DraftDay[]): DraftDay[] {
+  return days.map((d) => ({ ...d, exercises: (d.exercises ?? []).map((ex) => ({ ...ex })) }));
 }
 
 interface PlanEditorProps {
-  // A slice of the plan's sessions (onboarding's first week, or a single
-  // session from SessionEditor) — never the whole rolling schedule.
-  sessions: Session[];
-  onSaved: (sessions: Session[]) => void;
+  // Onboarding's draft week - never persisted here directly, just held in
+  // local state until the parent's onSaved reflects it back into its own
+  // draft state (see PlanReveal/OnboardingFlow).
+  days: DraftDay[];
+  onSaved: (days: DraftDay[]) => void;
   onCancel: () => void;
 }
 
-export default function PlanEditor({ sessions, onSaved, onCancel }: PlanEditorProps) {
-  const [rows, setRows] = useState<Session[]>(() => cloneSessions(sessions));
+export default function PlanEditor({ days, onSaved, onCancel }: PlanEditorProps) {
+  const [rows, setRows] = useState<DraftDay[]>(() => cloneDays(days));
   const [drafts, setDrafts] = useState<Record<string, NewExerciseDraft>>({});
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   const sortedRows = [...rows].sort((a, b) => a.date.localeCompare(b.date));
 
-  function updateExercise(sessionId: string, exerciseId: string, patch: Partial<PlanExercise>) {
+  function updateExercise(dayId: string, exerciseId: string, patch: Partial<PlanExercise>) {
     setRows((prev) =>
-      prev.map((s) =>
-        s.id !== sessionId
-          ? s
-          : {
-              ...s,
-              exercises: (s.exercises ?? []).map((ex) =>
-                ex.id === exerciseId ? { ...ex, ...patch } : ex
-              ),
-            }
+      prev.map((d) =>
+        d.id !== dayId
+          ? d
+          : { ...d, exercises: (d.exercises ?? []).map((ex) => (ex.id === exerciseId ? { ...ex, ...patch } : ex)) }
       )
     );
   }
 
-  function removeExercise(sessionId: string, exerciseId: string) {
+  function removeExercise(dayId: string, exerciseId: string) {
     setRows((prev) =>
-      prev.map((s) =>
-        s.id !== sessionId
-          ? s
-          : { ...s, exercises: (s.exercises ?? []).filter((ex) => ex.id !== exerciseId) }
-      )
+      prev.map((d) => (d.id !== dayId ? d : { ...d, exercises: (d.exercises ?? []).filter((ex) => ex.id !== exerciseId) }))
     );
   }
 
-  function draftFor(sessionId: string): NewExerciseDraft {
-    return drafts[sessionId] ?? emptyDraft();
+  function draftFor(dayId: string): NewExerciseDraft {
+    return drafts[dayId] ?? emptyDraft();
   }
 
-  function updateDraft(sessionId: string, patch: Partial<NewExerciseDraft>) {
-    setDrafts((prev) => ({ ...prev, [sessionId]: { ...draftFor(sessionId), ...patch } }));
+  function updateDraft(dayId: string, patch: Partial<NewExerciseDraft>) {
+    setDrafts((prev) => ({ ...prev, [dayId]: { ...draftFor(dayId), ...patch } }));
   }
 
-  function toggleDraftMuscle(sessionId: string, muscle: MuscleGroup) {
-    const draft = draftFor(sessionId);
+  function toggleDraftMuscle(dayId: string, muscle: MuscleGroup) {
+    const draft = draftFor(dayId);
     const muscles = draft.muscles.includes(muscle)
       ? draft.muscles.filter((m) => m !== muscle)
       : [...draft.muscles, muscle];
-    updateDraft(sessionId, { muscles });
+    updateDraft(dayId, { muscles });
   }
 
-  function addExercise(session: Session) {
-    const draft = draftFor(session.id);
+  function addExercise(day: DraftDay) {
+    const draft = draftFor(day.id);
     const name = draft.name.trim();
     if (!name) return;
-    const machineCategory: MachineCategory = session.focus === "rest" ? "other" : session.focus;
-    const exercises = session.exercises ?? [];
+    const machineCategory: MachineCategory = day.focus === "rest" ? "other" : day.focus;
+    const exercises = day.exercises ?? [];
     const newExercise: PlanExercise = {
-      id: `${session.id}-${Date.now()}-${exercises.length}`,
+      id: `${day.id}-${exercises.length}-${name.slice(0, 8)}`,
       name,
       sets: draft.sets,
       reps: draft.reps.trim() || "8-12",
       targetMuscles: draft.muscles,
       machineCategory,
     };
-    setRows((prev) =>
-      prev.map((s) => (s.id !== session.id ? s : { ...s, exercises: [...exercises, newExercise] }))
-    );
-    setDrafts((prev) => ({ ...prev, [session.id]: emptyDraft() }));
-  }
-
-  async function handleSave() {
-    setSaving(true);
-    setError(null);
-    try {
-      await Promise.all(
-        rows.map((session) =>
-          updateSession({ sessionId: session.id, patch: { exercises: session.exercises ?? [] } })
-        )
-      );
-      onSaved(rows);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't save your changes.");
-    } finally {
-      setSaving(false);
-    }
+    setRows((prev) => prev.map((d) => (d.id !== day.id ? d : { ...d, exercises: [...exercises, newExercise] })));
+    setDrafts((prev) => ({ ...prev, [day.id]: emptyDraft() }));
   }
 
   return (
     <div className="plan-editor">
-      {sortedRows.map((session) => {
-        const draft = draftFor(session.id);
+      {sortedRows.map((day) => {
+        const draft = draftFor(day.id);
         return (
-          <div key={session.id} className="card plan-editor-day">
+          <div key={day.id} className="card plan-editor-day">
             <div className="plan-editor-day-header">
-              <span className="plan-editor-day-name">{weekdayLabel(session.date)}</span>
-              <span className="plan-editor-day-focus">{FOCUS_LABELS[session.focus]}</span>
+              <span className="plan-editor-day-name">{weekdayLabel(day.date)}</span>
+              <span className="plan-editor-day-focus">{FOCUS_LABELS[day.focus]}</span>
             </div>
 
-            {(session.exercises ?? []).map((ex) => (
+            {(day.exercises ?? []).map((ex) => (
               <div key={ex.id} className="plan-editor-exercise-row">
                 <MachineIcon
                   iconId={findCatalogMachine(ex.name)?.id ?? ""}
@@ -155,7 +125,7 @@ export default function PlanEditor({ sessions, onSaved, onCancel }: PlanEditorPr
                   type="text"
                   className="plan-editor-input plan-editor-input-name"
                   value={ex.name}
-                  onChange={(e) => updateExercise(session.id, ex.id, { name: e.target.value })}
+                  onChange={(e) => updateExercise(day.id, ex.id, { name: e.target.value })}
                   aria-label="Exercise name"
                 />
                 <input
@@ -164,22 +134,20 @@ export default function PlanEditor({ sessions, onSaved, onCancel }: PlanEditorPr
                   max={10}
                   className="plan-editor-input plan-editor-input-sets"
                   value={ex.sets}
-                  onChange={(e) =>
-                    updateExercise(session.id, ex.id, { sets: Number(e.target.value) || 1 })
-                  }
+                  onChange={(e) => updateExercise(day.id, ex.id, { sets: Number(e.target.value) || 1 })}
                   aria-label="Sets"
                 />
                 <input
                   type="text"
                   className="plan-editor-input plan-editor-input-reps"
                   value={ex.reps}
-                  onChange={(e) => updateExercise(session.id, ex.id, { reps: e.target.value })}
+                  onChange={(e) => updateExercise(day.id, ex.id, { reps: e.target.value })}
                   aria-label="Reps"
                 />
                 <button
                   type="button"
                   className="plan-editor-remove-btn"
-                  onClick={() => removeExercise(session.id, ex.id)}
+                  onClick={() => removeExercise(day.id, ex.id)}
                   aria-label={`Remove ${ex.name}`}
                 >
                   ×
@@ -187,14 +155,14 @@ export default function PlanEditor({ sessions, onSaved, onCancel }: PlanEditorPr
               </div>
             ))}
 
-            {session.focus !== "rest" && (
+            {day.focus !== "rest" && (
               <div className="plan-editor-add-row">
                 <input
                   type="text"
                   placeholder="Add exercise"
                   className="plan-editor-input plan-editor-input-name"
                   value={draft.name}
-                  onChange={(e) => updateDraft(session.id, { name: e.target.value })}
+                  onChange={(e) => updateDraft(day.id, { name: e.target.value })}
                 />
                 <input
                   type="number"
@@ -202,13 +170,13 @@ export default function PlanEditor({ sessions, onSaved, onCancel }: PlanEditorPr
                   max={10}
                   className="plan-editor-input plan-editor-input-sets"
                   value={draft.sets}
-                  onChange={(e) => updateDraft(session.id, { sets: Number(e.target.value) || 1 })}
+                  onChange={(e) => updateDraft(day.id, { sets: Number(e.target.value) || 1 })}
                 />
                 <input
                   type="text"
                   className="plan-editor-input plan-editor-input-reps"
                   value={draft.reps}
-                  onChange={(e) => updateDraft(session.id, { reps: e.target.value })}
+                  onChange={(e) => updateDraft(day.id, { reps: e.target.value })}
                 />
                 <div className="plan-editor-muscle-chips">
                   {MUSCLE_GROUP_OPTIONS.map((m) => (
@@ -216,10 +184,9 @@ export default function PlanEditor({ sessions, onSaved, onCancel }: PlanEditorPr
                       key={m.value}
                       type="button"
                       className={
-                        "plan-editor-muscle-chip" +
-                        (draft.muscles.includes(m.value) ? " plan-editor-muscle-chip-selected" : "")
+                        "plan-editor-muscle-chip" + (draft.muscles.includes(m.value) ? " plan-editor-muscle-chip-selected" : "")
                       }
-                      onClick={() => toggleDraftMuscle(session.id, m.value)}
+                      onClick={() => toggleDraftMuscle(day.id, m.value)}
                     >
                       {m.label}
                     </button>
@@ -229,7 +196,7 @@ export default function PlanEditor({ sessions, onSaved, onCancel }: PlanEditorPr
                   type="button"
                   className="btn btn-secondary"
                   disabled={!draft.name.trim()}
-                  onClick={() => addExercise(session)}
+                  onClick={() => addExercise(day)}
                 >
                   + Add
                 </button>
@@ -239,14 +206,12 @@ export default function PlanEditor({ sessions, onSaved, onCancel }: PlanEditorPr
         );
       })}
 
-      {error && <p className="plan-editor-error">{error}</p>}
-
       <div className="plan-editor-actions">
-        <button type="button" className="btn btn-secondary plan-editor-btn" onClick={onCancel} disabled={saving}>
+        <button type="button" className="btn btn-secondary plan-editor-btn" onClick={onCancel}>
           Cancel
         </button>
-        <button type="button" className="btn btn-primary plan-editor-btn" onClick={handleSave} disabled={saving}>
-          {saving ? "Saving…" : "Save changes"}
+        <button type="button" className="btn btn-primary plan-editor-btn" onClick={() => onSaved(rows)}>
+          Save changes
         </button>
       </div>
 
@@ -332,10 +297,6 @@ export default function PlanEditor({ sessions, onSaved, onCancel }: PlanEditorPr
         .plan-editor-muscle-chip-selected {
           border-color: var(--accent);
           color: var(--accent);
-        }
-        .plan-editor-error {
-          color: var(--danger);
-          font-size: 13px;
         }
         .plan-editor-actions {
           display: flex;

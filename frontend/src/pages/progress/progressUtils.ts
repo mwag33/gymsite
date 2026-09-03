@@ -2,6 +2,8 @@
 // fields are typed `unknown` on the client (see lib/types.ts comment), so we
 // duck-type rather than importing the Timestamp class — same pattern as
 // features/plan/PlanReveal.tsx and pages/home/HomePage.tsx.
+import type { TrainingPlanFocus } from "../../lib/types";
+
 export function toDate(value: unknown): Date | null {
   if (
     value &&
@@ -45,44 +47,47 @@ export function formatSessionDate(date: Date): string {
   });
 }
 
-// computeStreak operates on Session[] (see lib/types.ts); imported lazily via
-// a type-only import to avoid a circular dependency with features/plan.
-import type { Session } from "../../lib/types";
-
 /**
  * Current and best consecutive-training-day streaks, walking backwards from
- * today. A "done"/"partial" session (any adherence, not a strict match)
- * counts toward the streak; "rest" focus days and days with no session at
- * all neither break nor extend it. "skipped"/"swapped" break the streak.
- * Pure function over the session stream Home already reads — no new
- * backend-authoritative field needed.
+ * today across a bounded lookback window. A day with at least one workout
+ * log counts toward the streak; a day the weeklyFocusPattern marks "rest"
+ * neither breaks nor extends it (expected rest, not a miss). Any other
+ * unlogged past day breaks the streak. Pure function over the log-date set
+ * Progress already reads and UserProfile.weeklyFocusPattern - no
+ * plan-vs-actual bookkeeping needed.
  */
-export function computeStreak(sessions: Session[]): { current: number; best: number } {
-  const trainingDays = sessions
-    .filter((s) => s.focus !== "rest")
-    .slice()
-    .sort((a, b) => a.date.localeCompare(b.date));
+export function computeStreak(
+  loggedDates: Set<string>,
+  pattern: TrainingPlanFocus[] | null,
+  lookbackDays = 90
+): { current: number; best: number } {
+  const today = startOfDay(new Date());
 
   let best = 0;
   let running = 0;
+  let current = 0;
+  let stillCounting = true;
 
-  const todayKey = (() => {
-    const d = new Date();
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  })();
+  // Walk backwards from today: `current` freezes at the first break
+  // encountered (the streak trailing into today); `best` keeps scanning the
+  // whole window for the longest run seen anywhere in it.
+  for (let i = 0; i < lookbackDays; i++) {
+    const d = addDays(today, -i);
+    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    const isRestDay = pattern ? pattern[d.getDay()] === "rest" : false;
 
-  // Walk chronologically; `running` at the end of the loop is the streak
-  // trailing into today, i.e. "current". `best` tracks the max seen.
-  for (const session of trainingDays) {
-    if (session.date > todayKey) continue; // future sessions don't count yet
-    if (session.status === "done" || session.status === "partial") {
+    if (loggedDates.has(key)) {
       running += 1;
       best = Math.max(best, running);
-    } else if (session.status === "skipped" || session.status === "swapped") {
+      if (stillCounting) current = running;
+    } else if (isRestDay || i === 0) {
+      // Rest-pattern days neither break nor extend. Today itself is treated
+      // the same way while unlogged - "not yet reached", not a miss.
+    } else {
       running = 0;
+      stillCounting = false;
     }
-    // "upcoming" (not yet reached) neither breaks nor extends.
   }
 
-  return { current: running, best };
+  return { current, best };
 }

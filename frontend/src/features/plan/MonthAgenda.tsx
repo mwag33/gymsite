@@ -1,98 +1,67 @@
-// Full month grid, folded directly into HomePage (the app's one "when am I
-// training" surface - see the design plan's IA simplification). Each cell
-// is a small PlateRing (notches=0 - a full plate doesn't read cleanly this
-// small, see PlateRing.tsx) wrapping the date number, plus a tiny FocusIcon
-// badge for training type. Aligned to real weekdays (padded with blank
-// leading/trailing cells), colored per merged status (a tracked session
-// overrides the plan suggestion's status - see mergeDaySessions), click
-// navigates to /day/:date.
-import { useNavigate } from "react-router-dom";
-import type { Session, TrackedSession } from "../../lib/types";
-import { parseLocalDateKey } from "./planDate";
+// Full month grid, folded directly into HomePage. Each cell is a small
+// PlateRing (notches=0 - a full plate doesn't read cleanly this small, see
+// PlateRing.tsx) wrapping the date number, plus a tiny FocusIcon badge for
+// training type. Aligned to real weekdays (padded with blank leading/
+// trailing cells). Tapping a cell opens DayEditSheet inline (see HomePage) -
+// no navigation, no accept step, no redirect chain.
+import type { DaySession, TrainingPlanFocus } from "../../lib/types";
+import { addDaysToKey, daysInMonth, parseLocalDateKey, startOfMonthKey } from "./planDate";
 import { FocusIcon } from "./focusIcons";
-import { mergeDaySessions, primaryDisplayCategory, summarizeDayStatus } from "./mergeSessions";
+import { dayViewFor } from "./daySessionsRange";
 import PlateRing from "../../components/PlateRing";
 
 interface MonthAgendaProps {
-  sessions: Session[];
-  trackedSessions?: TrackedSession[];
+  byDate: Record<string, DaySession>;
+  pattern: TrainingPlanFocus[] | null;
   today: string;
+  monthAnchor: string; // any date within the month to display
   weekStartsOn?: number; // 0 = Sunday .. 6 = Saturday
-  onClose?: () => void;
+  onSelectDate: (date: string) => void;
 }
 
-function cellRing(status: ReturnType<typeof summarizeDayStatus>): { fillPercent: number; color: string } {
+function cellRing(status: ReturnType<typeof dayViewFor>["status"]): { fillPercent: number; color: string } {
   switch (status) {
     case "done":
       return { fillPercent: 1, color: "var(--success)" };
     case "in_progress":
-    case "partial":
-    case "swapped":
       return { fillPercent: 0.5, color: "var(--accent)" };
-    case "skipped":
-      return { fillPercent: 1, color: "var(--danger)" };
     default:
       return { fillPercent: 0, color: "var(--border)" };
   }
 }
 
 export default function MonthAgenda({
-  sessions,
-  trackedSessions = [],
+  byDate,
+  pattern,
   today,
+  monthAnchor,
   weekStartsOn = 1,
-  onClose,
+  onSelectDate,
 }: MonthAgendaProps) {
-  const navigate = useNavigate();
-  const sorted = [...sessions].sort((a, b) => a.date.localeCompare(b.date));
-  if (sorted.length === 0) {
-    return (
-      <div className="month-agenda card">
-        <p>No sessions scheduled yet.</p>
-        {onClose && (
-          <button type="button" className="btn btn-secondary" onClick={onClose}>
-            Close
-          </button>
-        )}
-      </div>
-    );
-  }
+  const monthStart = startOfMonthKey(monthAnchor);
+  const total = daysInMonth(monthAnchor);
+  const dates = Array.from({ length: total }, (_, i) => addDaysToKey(monthStart, i));
+  const leadingPad = (parseLocalDateKey(monthStart).getDay() - weekStartsOn + 7) % 7;
 
-  const firstDate = sorted[0].date;
-  const leadingPad = (parseLocalDateKey(firstDate).getDay() - weekStartsOn + 7) % 7;
-
-  const cells: (Session | null)[] = [
-    ...Array.from({ length: leadingPad }, () => null),
-    ...sorted,
-  ];
+  const cells: (string | null)[] = [...Array.from({ length: leadingPad }, () => null), ...dates];
   while (cells.length % 7 !== 0) cells.push(null);
 
   return (
     <div className="month-agenda card">
-      <div className="month-agenda-header">
-        <h3>This month</h3>
-        {onClose && (
-          <button type="button" className="month-agenda-close" onClick={onClose} aria-label="Close">
-            &times;
-          </button>
-        )}
-      </div>
       <div className="month-agenda-grid">
-        {cells.map((session, i) => {
-          if (!session) return <span key={`pad-${i}`} className="month-agenda-cell month-agenda-cell-empty" />;
-          const isToday = session.date === today;
-          const view = mergeDaySessions(sessions, trackedSessions, session.date);
-          const mergedStatus = summarizeDayStatus(view);
-          const displayCategory = primaryDisplayCategory(view);
-          const isRest = session.focus === "rest" && !displayCategory;
-          const ring = cellRing(isRest ? null : mergedStatus);
-          const dayNum = parseLocalDateKey(session.date).getDate();
+        {cells.map((date, i) => {
+          if (!date) return <span key={`pad-${i}`} className="month-agenda-cell month-agenda-cell-empty" />;
+          const isToday = date === today;
+          const view = dayViewFor(date, byDate[date], pattern);
+          const isRest = view.focus === "rest" && !view.displayCategory;
+          const ring = isRest ? { fillPercent: 0, color: "var(--border)" } : cellRing(view.status);
+          const dayNum = parseLocalDateKey(date).getDate();
           return (
             <button
-              key={session.id}
+              key={date}
               type="button"
               className={"month-agenda-cell" + (isToday ? " month-agenda-cell-today" : "")}
-              onClick={() => navigate(`/day/${session.date}`)}
+              onClick={() => onSelectDate(date)}
             >
               <PlateRing
                 size={34}
@@ -102,8 +71,8 @@ export default function MonthAgenda({
                 holeColor="var(--surface-raised)"
                 label={<span className="month-agenda-cell-num tnum">{dayNum}</span>}
               />
-              {displayCategory && (
-                <FocusIcon focus={displayCategory} width={11} height={11} className="month-agenda-cell-icon" />
+              {view.displayCategory && (
+                <FocusIcon focus={view.displayCategory} width={11} height={11} className="month-agenda-cell-icon" />
               )}
             </button>
           );
@@ -115,23 +84,6 @@ export default function MonthAgenda({
           display: flex;
           flex-direction: column;
           gap: var(--space-3);
-        }
-        .month-agenda-header {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-        }
-        .month-agenda-header h3 {
-          font-size: 15px;
-        }
-        .month-agenda-close {
-          background: none;
-          border: none;
-          color: var(--text-muted);
-          font-size: 20px;
-          line-height: 1;
-          cursor: pointer;
-          padding: 0;
         }
         .month-agenda-grid {
           display: grid;
@@ -168,4 +120,3 @@ export default function MonthAgenda({
     </div>
   );
 }
-

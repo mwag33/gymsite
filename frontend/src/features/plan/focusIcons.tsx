@@ -3,7 +3,7 @@
 // day chips/rows read at a glance without relying on any third-party
 // artwork or product photography.
 import type { ReactElement, SVGProps } from "react";
-import type { Session, SessionStatus, TrainingPlanFocus } from "../../lib/types";
+import type { TrainingPlanFocus } from "../../lib/types";
 
 function Glyph(props: SVGProps<SVGSVGElement>) {
   return (
@@ -111,61 +111,4 @@ export function FocusIcon({
 }: { focus: TrainingPlanFocus } & SVGProps<SVGSVGElement>) {
   const Glyph = FOCUS_GLYPHS[focus];
   return <Glyph {...props} />;
-}
-
-// Status -> the color token an icon badge should use. "upcoming" is neutral
-// on purpose (nothing has happened yet); "partial" reads the same as "done"
-// at a glance (any adherence beats none) with detail available on tap-through.
-export function statusColorVar(status: SessionStatus): string {
-  switch (status) {
-    case "done":
-    case "partial":
-      return "var(--success)";
-    case "skipped":
-      return "var(--danger)";
-    case "swapped":
-      return "var(--accent)";
-    case "upcoming":
-    default:
-      return "var(--text-muted)";
-  }
-}
-
-interface FocusBadgeProps {
-  session: Pick<Session, "focus" | "status">;
-  size?: number;
-  muted?: boolean;
-}
-
-// Circular badge combining both signals a day chip/row needs: the icon shape
-// says *what* (focus category), the color says *how it went* (status) - one
-// glance replaces the old plain status dot plus a separate text label.
-export function FocusBadge({ session, size = 22, muted = false }: FocusBadgeProps) {
-  const isRest = session.focus === "rest";
-  const color = isRest ? "var(--text-muted)" : statusColorVar(session.status);
-  return (
-    <span
-      className="focus-badge"
-      style={{
-        width: size,
-        height: size,
-        color,
-        borderColor: isRest ? "transparent" : color,
-        opacity: muted || isRest ? 0.55 : 1,
-      }}
-    >
-      <FocusIcon focus={session.focus} width={size * 0.62} height={size * 0.62} />
-
-      <style>{`
-        .focus-badge {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          flex-shrink: 0;
-          border-radius: 50%;
-          border: 1.5px solid;
-        }
-      `}</style>
-    </span>
-  );
 }

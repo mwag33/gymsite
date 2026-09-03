@@ -1,14 +1,12 @@
 import { onCall, HttpsError } from "firebase-functions/v2/https";
 import { db } from "./admin";
 import { checkAndConsumeAiQuota, refundAiQuota } from "./quota";
-import { geminiApiKey, MODEL_ID } from "./gemini";
-import { runExerciseFill } from "./generateExercisesForWeek";
-import { localDateKey } from "./dateUtils";
-import { computeExerciseHorizon } from "./planEngine";
-import type { FeatureFlagsDoc, MachineDoc, PlanDoc, PlanExercise } from "./types";
+import { generateExercisesForDays, geminiApiKey } from "./gemini";
+import type { DraftDay, FeatureFlagsDoc, MachineCategory, MachineDoc, MuscleGroup, PlanExercise } from "./types";
 
 interface RegenerateSessionExercisesRequest {
-  sessionId: string;
+  dayId: string;
+  focus: DraftDay["focus"];
   experience: string;
   sessionLengthMinutes: number;
   gymId: string | null;
@@ -18,15 +16,10 @@ interface RegenerateSessionExercisesRequest {
 }
 
 /**
- * Regenerates exercises for exactly one session, on demand - e.g. right
- * after a manual focus swap on SessionDetailPage. This is deliberately a
- * separate callable from generateExercisesForWeek rather than a parameter on
- * it: that callable's candidate filter (`date > exerciseHorizon &&
- * exercises === null && !locked`) is a "server decides the slice" contract
- * that a swapped, already-locked, before-horizon day can never satisfy -
- * bypassing it with a client-supplied id would weaken that guarantee for
- * every caller, not just this one. Reuses the same runExerciseFill core the
- * horizon-fill callable uses, just scoped to a single caller-chosen session.
+ * Onboarding-only: regenerates exercises for exactly one draft day, on
+ * demand (e.g. right after the user swaps that day's focus during review).
+ * Stateless, like generateExercisesForWeek - the client applies the
+ * returned exercises to its local draft state itself.
  */
 export const regenerateSessionExercises = onCall<RegenerateSessionExercisesRequest>(
   { secrets: [geminiApiKey] },
@@ -37,8 +30,8 @@ export const regenerateSessionExercises = onCall<RegenerateSessionExercisesReque
     const uid = request.auth.uid;
     const input = request.data;
 
-    if (!input?.sessionId || typeof input.sessionId !== "string") {
-      throw new HttpsError("invalid-argument", "sessionId is required.");
+    if (!input?.dayId || typeof input.dayId !== "string") {
+      throw new HttpsError("invalid-argument", "dayId is required.");
     }
 
     const flagsSnap = await db.doc("system/featureFlags").get();
@@ -50,21 +43,8 @@ export const regenerateSessionExercises = onCall<RegenerateSessionExercisesReque
       );
     }
 
-    const planRef = db.doc(`users/${uid}/plans/current`);
-    const planSnap = await planRef.get();
-    if (!planSnap.exists) {
-      throw new HttpsError("failed-precondition", "No plan exists to regenerate exercises for.");
-    }
-    const plan = planSnap.data() as PlanDoc;
-    const session = plan.sessions.find((s) => s.id === input.sessionId);
-    if (!session) {
-      throw new HttpsError("not-found", "No session with that id in the current plan.");
-    }
-    const todayKey = localDateKey(new Date(), plan.timezone || "UTC");
-
-    if (session.focus === "rest") {
-      // Rest days carry `[]`, never generated exercises - nothing to do.
-      return plan;
+    if (input.focus === "rest") {
+      return { exercises: [] as PlanExercise[] };
     }
 
     await checkAndConsumeAiQuota(uid);
@@ -89,42 +69,30 @@ export const regenerateSessionExercises = onCall<RegenerateSessionExercisesReque
       .filter(Boolean)
       .join("\n");
 
-    let filledById: Map<string, PlanExercise[]>;
+    let exercises: PlanExercise[];
     try {
-      filledById = await runExerciseFill({
-        sessions: [session],
+      const generated = await generateExercisesForDays({
+        days: [{ dayIndex: 0, focus: input.focus }],
         experience: input.experience,
         sessionLengthMinutes: input.sessionLengthMinutes,
         gymMachines,
         userNotes,
       });
+      const raw = generated.days.find((d) => d.dayIndex === 0)?.exercises ?? [];
+      exercises = raw.map((ex, j) => ({
+        id: `${input.dayId}-${j}`,
+        name: ex.name,
+        sets: ex.sets,
+        reps: ex.reps,
+        targetMuscles: ex.targetMuscles as MuscleGroup[],
+        machineCategory: input.focus as MachineCategory,
+        note: ex.note,
+      }));
     } catch (err) {
       await refundAiQuota(uid);
       throw err;
     }
 
-    const updatedPlan = await db.runTransaction(async (tx) => {
-      const freshSnap = await tx.get(planRef);
-      if (!freshSnap.exists) {
-        throw new HttpsError("failed-precondition", "Plan no longer exists.");
-      }
-      const freshPlan = freshSnap.data() as PlanDoc;
-      const filled = filledById.get(input.sessionId);
-      const sessions = freshPlan.sessions.map((s) =>
-        s.id === input.sessionId && filled
-          ? { ...s, exercises: filled, source: "ai_exercises" as const }
-          : s
-      );
-      const next: PlanDoc = {
-        ...freshPlan,
-        sessions,
-        exerciseHorizon: computeExerciseHorizon(sessions, todayKey),
-        exercisesModelVersion: MODEL_ID,
-      };
-      tx.set(planRef, next);
-      return next;
-    });
-
-    return updatedPlan;
+    return { exercises };
   }
 );

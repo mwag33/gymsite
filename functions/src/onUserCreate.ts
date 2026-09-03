@@ -45,6 +45,7 @@ export const onUserCreate = functionsV1.auth.user().onCreate(async (user) => {
       timezone: "UTC",
     },
     emailVerified: user.emailVerified,
+    weeklyFocusPattern: null,
   };
 
   const quotaDoc: AiQuotaDoc = {
